@@ -619,6 +619,38 @@ async function api(req, res, url) {
     return send(res, 200, { ok: true });
   }
 
+  if (p === '/api/search') {
+    const q = String(new URL(req.url, 'http://x').searchParams.get('q') || '').trim();
+    if (!q) return send(res, 200, { ok: true, items: [] });
+    const needle = q.toLowerCase();
+    const tree = readJson(P.tree, { tree: [] });
+    const list = [];
+    const walk = (nodes) => (nodes || []).forEach((n) => {
+      if (n.children) return walk(n.children);
+      if (n.path) list.push({ title: n.title || n.path, path: n.path, price: Number(n.price) || 0 });
+    });
+    walk(tree.tree || tree.groups || []);
+    const items = [];
+    for (const it of list) {
+      const titleHit = it.title.toLowerCase().includes(needle);
+      let body = '';
+      if (!it.price) {
+        try { body = fs.readFileSync(path.join(SITE_DIR, it.path), 'utf8'); } catch (_) {}
+      }
+      const bodyHit = body ? body.toLowerCase().indexOf(needle) : -1;
+      if (!titleHit && bodyHit < 0) continue;
+      let snippet = '';
+      if (bodyHit >= 0) {
+        const s0 = Math.max(0, bodyHit - 60);
+        snippet = body.slice(s0, bodyHit + needle.length + 90).replace(/[#*`>\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+      }
+      items.push({ title: it.title, path: it.path, price: it.price, locked: it.price > 0 && !snippet, snippet: snippet,
+        score: (titleHit ? 3 : 0) + (bodyHit >= 0 ? 1 : 0) });
+    }
+    items.sort((a, b) => b.score - a.score || a.title.length - b.title.length);
+    return send(res, 200, { ok: true, items: items.slice(0, 20) });
+  }
+
   if (p === '/api/points/config') {
     const cfg = pointsCfg();
     const on = cfg.enabled && isPro(host(req));

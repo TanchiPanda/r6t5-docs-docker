@@ -81,12 +81,12 @@
     .topbar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-start;
       gap: 12px;
       padding: 12px 28px;
       border-bottom: 1px solid var(--border);
     }
-    .topbar .doc-title { font-size: 15px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .topbar .doc-title { flex: 1; font-size: 15px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .edit-btn {
       display: inline-flex;
       align-items: center;
@@ -105,6 +105,30 @@
 
     /* ---------- 复制全文下拉 ---------- */
     .copy-group { position: relative; flex-shrink: 0; }
+    .search-wrap { position: relative; flex-shrink: 0; }
+    .search-input {
+      width: 240px; padding: 6px 46px 6px 12px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+      font-size: 13px; outline: none;
+    }
+    .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(9,105,218,.12); }
+    .search-kbd {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      font-size: 11px; color: var(--text-muted); border: 1px solid var(--border);
+      border-radius: 4px; padding: 0 4px; pointer-events: none;
+    }
+    .search-results {
+      position: absolute; top: 36px; left: 0; width: 420px; max-height: 60vh; overflow: auto;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 12px 32px rgba(0,0,0,.18); z-index: 60;
+    }
+    .search-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
+    .search-item:last-child { border-bottom: none; }
+    .search-item.active, .search-item:hover { background: rgba(9,105,218,.08); }
+    .search-item .st { font-size: 13px; font-weight: 600; }
+    .search-item .sp { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .search-item .ss { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.5; }
+    .search-empty { padding: 12px; font-size: 12px; color: var(--text-muted); }
     .copy-btn {
       display: inline-flex;
       align-items: center;
@@ -254,6 +278,11 @@
       <header class="topbar">
         <button class="menu-btn" id="menuBtn" aria-label="目录">☰</button>
         <span class="doc-title" id="docTitle">加载中…</span>
+        <div class="search-wrap">
+          <input class="search-input" id="searchInput" placeholder="搜索文档…" autocomplete="off" spellcheck="false">
+          <span class="search-kbd" id="searchKbd">⌘K</span>
+          <div class="search-results" id="searchResults" hidden></div>
+        </div>
         <div class="copy-group">
           <button class="copy-btn" id="copyBtn" aria-haspopup="true" aria-expanded="false">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -391,6 +420,88 @@
       } catch (e) {}
       document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
       setInterval(tick, 4000);
+    })();
+
+    // ---------- 搜索（⌘K / Ctrl+K，全文 + 标题） ----------
+    (function initSearch() {
+      const input = document.getElementById('searchInput');
+      const box = document.getElementById('searchResults');
+      const kbd = document.getElementById('searchKbd');
+      if (!input || !box) return;
+      if (!/Mac|iPhone|iPad/.test(navigator.platform)) kbd.textContent = 'Ctrl+K';
+
+      let items = [], active = -1, timer = null, reqId = 0;
+
+      const close = () => { box.hidden = true; active = -1; };
+
+      function render(q) {
+        if (!items.length) {
+          box.innerHTML = '<div class="search-empty">没有匹配「' + esc(q) + '」的文档</div>';
+          box.hidden = false;
+          return;
+        }
+        box.innerHTML = items.map((it, i) =>
+          '<div class="search-item' + (i === active ? ' active' : '') + '" data-i="' + i + '">'
+          + '<div class="st">' + esc(it.title) + (it.locked ? ' <span style="color:#b8860b;font-size:11px;">付费</span>' : '') + '</div>'
+          + '<div class="sp">' + esc(it.path) + '</div>'
+          + (it.snippet ? '<div class="ss">' + esc(it.snippet) + '</div>' : '')
+          + '</div>').join('');
+        box.hidden = false;
+      }
+
+      async function run(q) {
+        const my = ++reqId;
+        const r = await fetch('/api/search?q=' + encodeURIComponent(q));
+        const d = await r.json().catch(() => ({ items: [] }));
+        if (my !== reqId) return;
+        items = d.items || d.ok ? (d.items || []) : [];
+        active = items.length ? 0 : -1;
+        render(q);
+      }
+
+      input.addEventListener('input', () => {
+        const q = input.value.trim();
+        clearTimeout(timer);
+        if (!q) { close(); return; }
+        timer = setTimeout(() => run(q), 220);
+      });
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { close(); input.blur(); return; }
+        if (!box.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+          e.preventDefault();
+          if (!items.length) return;
+          active = e.key === 'ArrowDown' ? (active + 1) % items.length : (active - 1 + items.length) % items.length;
+          render(input.value.trim());
+          return;
+        }
+        if (e.key === 'Enter') {
+          if (!items.length) return;
+          e.preventDefault();
+          const it = items[Math.max(0, active)];
+          if (it) location.href = '?path=' + encodeURIComponent(it.path);
+        }
+      });
+
+      box.addEventListener('mousedown', (e) => {
+        const row = e.target.closest('.search-item');
+        if (!row) return;
+        e.preventDefault();
+        const it = items[+row.dataset.i];
+        if (it) location.href = '?path=' + encodeURIComponent(it.path);
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          input.focus();
+          input.select();
+        }
+      });
+
+      document.addEventListener('mousedown', (e) => {
+        if (!e.target.closest('.search-wrap')) close();
+      });
     })();
 
     marked.setOptions({ gfm: true, breaks: true });
