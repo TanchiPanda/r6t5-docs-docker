@@ -198,6 +198,15 @@
     }
     .site-footer a { color: var(--accent); text-decoration: none; }
     .site-footer a:hover { text-decoration: underline; }
+    .site-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .pro-cta {
+      margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+      padding: 5px 12px; border: 1px solid rgba(201,154,30,.55); border-radius: 999px;
+      font-size: 12px; font-weight: 600; color: #9a6f00 !important;
+      background: rgba(201,154,30,.1); text-decoration: none !important; white-space: nowrap;
+    }
+    .pro-cta:hover { background: rgba(201,154,30,.22); }
+    .pro-cta[hidden] { display: none !important; }
     .attribution-warning {
       margin: 0 auto 12px;
       max-width: 900px;
@@ -270,7 +279,7 @@
         </a>
       </header>
       <article class="content" id="content"></article>
-      <footer class="site-footer" id="siteFooter">本站由<a id="footerLink" href="https://github.com/TanchiPanda/r6t5-docs-community" target="_blank" rel="noopener">r6t5-docs</a>提供支持<span id="footerProNote">，使用专业版、订制版可去除本标志</span></footer>
+      <footer class="site-footer" id="siteFooter"><span id="footerAttribution">本站由<a id="footerLink" href="https://github.com/TanchiPanda/r6t5-docs-community" target="_blank" rel="noopener">r6t5-docs</a>提供支持<span id="footerProNote">，使用专业版、订制版可去除本标志</span></span><a class="pro-cta" id="proCta" href="https://github.com/TanchiPanda/r6t5-docs-docker#readme" target="_blank" rel="noopener">了解 Pro →</a></footer>
     </div>
   </div>
 
@@ -288,7 +297,9 @@
       base: '本站由r6t5-docs提供支持',
       proNote: '，使用专业版、订制版可去除本标志',
       canonical: '本站由r6t5-docs提供支持，使用专业版、订制版可去除本标志',
-      templateUrl: 'https://github.com/TanchiPanda/r6t5-docs-community'
+      templateUrl: 'https://github.com/TanchiPanda/r6t5-docs-community',
+      proCtaText: '了解 Pro →',
+      proUrl: 'https://github.com/TanchiPanda/r6t5-docs-docker#readme'
     }, R6.attribution || {});
 
     const treeEl = document.getElementById('tree');
@@ -302,44 +313,84 @@
 
     let rawMarkdown = '';
 
-    // 页脚署名：渲染期望文案，并与实际 DOM 逐字符比对；不符则提示并自动恢复
-    (function enforceAttribution() {
-      const expected = FOOTER.showProNote ? ATTRIBUTION.canonical : ATTRIBUTION.base;
-      // showProNote 为 false 即表示已获得专业版/订制版授权，可去除提示
-      if (!FOOTER.showProNote) {
-        const note = document.getElementById('footerProNote');
-        if (note) note.remove();
+    // ---------- 署名与「了解 Pro」防篡改 ----------
+    // 社区版：署名 + 「了解 Pro」入口都必须存在且逐字符一致，删改即还原并提示。
+    // 专业版：隐藏入口、可去掉提示，署名仍按授权要求保留。
+    function buildFooter() {
+      siteFooter.innerHTML = '';
+      const holder = document.createElement('span');
+      holder.id = 'footerAttribution';
+      holder.appendChild(document.createTextNode('本站由'));
+      const a = document.createElement('a');
+      a.id = 'footerLink';
+      a.href = ATTRIBUTION.templateUrl;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = ATTRIBUTION.name;
+      holder.appendChild(a);
+      holder.appendChild(document.createTextNode('提供支持'));
+      if (FOOTER.showProNote) {
+        const span = document.createElement('span');
+        span.id = 'footerProNote';
+        span.textContent = ATTRIBUTION.proNote;
+        holder.appendChild(span);
       }
+      siteFooter.appendChild(holder);
+      if (FOOTER.showProNote) {
+        const cta = document.createElement('a');
+        cta.id = 'proCta';
+        cta.className = 'pro-cta';
+        cta.href = ATTRIBUTION.proUrl;
+        cta.target = '_blank';
+        cta.rel = 'noopener';
+        cta.textContent = ATTRIBUTION.proCtaText;
+        siteFooter.appendChild(cta);
+      }
+    }
+
+    function footerBroken() {
+      const holder = document.getElementById('footerAttribution');
       const link = document.getElementById('footerLink');
-      if (link) {
-        link.href = ATTRIBUTION.templateUrl;
-        link.textContent = ATTRIBUTION.name;
+      if (!holder || !link) return true;
+      const base = FOOTER.showProNote ? ATTRIBUTION.canonical : ATTRIBUTION.base;
+      if ((holder.textContent || '').trim() !== base) return true;
+      if (link.getAttribute('href') !== ATTRIBUTION.templateUrl) return true;
+      if (link.textContent.trim() !== ATTRIBUTION.name) return true;
+      if (FOOTER.showProNote) {
+        const cta = document.getElementById('proCta');
+        if (!cta) return true;
+        if (cta.getAttribute('href') !== ATTRIBUTION.proUrl) return true;
+        if (cta.textContent.trim() !== ATTRIBUTION.proCtaText) return true;
+        if (cta.hidden || cta.getBoundingClientRect().width < 8) return true;
       }
-      if (siteFooter.textContent !== expected) {
-        // 自动恢复标准署名
-        siteFooter.innerHTML = '';
-        const pre = document.createTextNode('本站由');
-        const a = document.createElement('a');
-        a.id = 'footerLink';
-        a.href = ATTRIBUTION.templateUrl;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.textContent = ATTRIBUTION.name;
-        siteFooter.appendChild(pre);
-        siteFooter.appendChild(a);
-        siteFooter.appendChild(document.createTextNode('提供支持'));
-        if (FOOTER.showProNote) {
-          const span = document.createElement('span');
-          span.id = 'footerProNote';
-          span.textContent = ATTRIBUTION.proNote;
-          siteFooter.appendChild(span);
-        }
-        const warn = document.createElement('div');
-        warn.className = 'attribution-warning';
-        warn.textContent = '本页署名被删改，已按《r6t5-docs 社区版授权条款》恢复。商业使用请保留完整署名。';
-        siteFooter.parentNode.insertBefore(warn, siteFooter);
+      return false;
+    }
+
+    let footerWarn = null;
+    function enforceAttribution(silent) {
+      if (!footerBroken()) return false;
+      buildFooter();
+      if (!silent) {
+        if (footerWarn && footerWarn.parentNode) footerWarn.remove();
+        footerWarn = document.createElement('div');
+        footerWarn.className = 'attribution-warning';
+        footerWarn.textContent = '本页署名或「了解 Pro」入口被删改，已按《r6t5-docs 社区版授权条款》恢复。商业使用请保留完整署名与入口。';
+        siteFooter.parentNode.insertBefore(footerWarn, siteFooter);
         console.warn('[r6t5-docs] 署名被删改，已自动恢复');
       }
+      return true;
+    }
+
+    enforceAttribution(true);
+
+    (function watchFooter() {
+      let busy = false;
+      const tick = () => { if (busy) return; busy = true; try { enforceAttribution(false); } finally { busy = false; } };
+      try {
+        new MutationObserver(tick).observe(siteFooter, { childList: true, subtree: true, characterData: true, attributes: true });
+      } catch (e) {}
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+      setInterval(tick, 4000);
     })();
 
     marked.setOptions({ gfm: true, breaks: true });
