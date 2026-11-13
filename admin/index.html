@@ -124,6 +124,53 @@
       <textarea id="ptSqlBox" class="hide" spellcheck="false" style="min-height:260px;margin-top:10px;font-size:12px;"></textarea>
     </div>
 
+    <!-- 会员档位 -->
+    <div class="card">
+      <h2>会员档位（VIP · 积分支付） <span class="row"><button class="btn mini" id="vipAdd">+ 档位</button><button class="btn mini" id="vipSave">保存</button></span></h2>
+      <div class="note">VIP = 本站全部文档解锁，仅对当前站点生效。价格用积分计，用户用余额购买，不涉及人民币。</div>
+      <div id="vipBox" style="margin-top:10px;"></div>
+      <div class="msg" id="vipMsg"></div>
+    </div>
+
+    <!-- 兑换码 -->
+    <div class="card">
+      <h2>兑换码 <span class="row"><button class="btn mini" id="codeGen">生成</button><button class="btn mini" id="codeCopy">复制未用</button></span></h2>
+      <div class="grid2">
+        <div><label>类型</label><select id="codeKind" style="width:100%;padding:10px;border-radius:8px;background:#0e1120;color:#e8e8f0;border:1px solid rgba(255,255,255,.16);"><option value="points">积分</option><option value="vip">VIP 天数</option></select></div>
+        <div><label>数量 / 面值</label><input type="text" id="codeValue" placeholder="积分数量或 VIP 天数"></div>
+      </div>
+      <div class="grid2">
+        <div><label>生成个数</label><input type="text" id="codeCount" value="5"></div>
+        <div style="display:flex;align-items:flex-end;"><button class="btn primary" id="codeGen2" style="width:100%;">批量生成</button></div>
+      </div>
+      <div class="msg" id="codeMsg"></div>
+      <div id="codeList" style="margin-top:10px;"></div>
+    </div>
+
+    <!-- 用户管理 -->
+    <div class="card">
+      <h2>用户管理 <span class="row"><button class="btn mini" id="userRefresh">刷新</button></span></h2>
+      <div class="note" id="userHint"></div>
+      <div id="userList" style="margin-top:10px;"></div>
+      <div class="msg" id="userMsg"></div>
+    </div>
+
+    <!-- 积分帮助 -->
+    <div class="card">
+      <h2>积分帮助（开发提示）</h2>
+      <div class="note" style="white-space:pre-wrap;line-height:2;">
+1) 账户与积分都放在你在「文档积分」里填的 Supabase 项目中，前端只用 anon key + 用户 JWT。
+2) 注册即由触发器自动开积分账户（余额 0）；VIP 到期只影响解锁，不影响账户。
+3) 积分入账方式（本系统不提供人民币充值/提现）：
+   · 兑换码：后台「兑换码」批量生成，读者在账户面板兑换；
+   · 手工加分：Supabase SQL 执行 select public.r6t5_grant('用户UUID'::uuid, 100)；
+   · 接支付：支付回调验签后调用 r6t5_grant / r6t5_activate_vip 即可，建议在自建后端做，不要放前端。
+4) 安全：service_role key 只放服务端环境变量 SUPABASE_SERVICE_KEY，前端永远拿不到；
+   r6t5_accounts / r6t5_unlocks / r6t5_vip_orders 均已启用 RLS，只允许本人读取。
+5) 计价：文档树单篇价格为准，0 或留空免费；可读比例 100% 时全站免费。
+      </div>
+    </div>
+
     <!-- 站点设置 -->
     <div class="card">
       <h2>站点设置</h2>
@@ -249,6 +296,13 @@ async function loadState() {
         : '还没配置 Supabase。此时开启积分会让文档按比例锁住，并提示读者「请联系管理员完善积分系统」。请填 URL + anon key，并按「查看建库 SQL」在 Supabase 建表。')
     : '文档积分是专业版专属。当前站点为社区版，功能已禁用，读者端不会出现任何弹窗或锁定。';
 
+  S.vipPlans = d.vipPlans || [];
+  S.codes = d.codes || [];
+  renderVip();
+  renderCodes();
+  $('userHint').textContent = d.serviceReady
+    ? '已配置 service_role key，可在此查看用户并调整积分。'
+    : '未配置 SUPABASE_SERVICE_KEY：只能看提示，用户数据请到 Supabase 控制台管理。';
   const site = d.site || {};
   $('siteTitle').value = site.title || 'r6t5 文档';
   $('siteRepo').value = site.repo || '';
@@ -505,6 +559,93 @@ $('keyBtn').onclick = async () => {
     await loadState();
   } catch (e) { setMsg('keyMsg', e.message, false); }
   $('keyBtn').disabled = false; $('keyBtn').textContent = '激活';
+};
+
+function renderVip() {
+  const box = $('vipBox');
+  const plans = S.vipPlans || [];
+  box.innerHTML = plans.map((p, i) =>
+    '<div class="item">'
+    + '<input type="text" class="grow" value="' + esc(p.label) + '" data-vp="' + i + '" data-k="label" placeholder="名称（如 30 天）">'
+    + '<input type="text" style="width:80px;" value="' + p.days + '" data-vp="' + i + '" data-k="days" placeholder="天数">'
+    + '<input type="text" style="width:90px;" value="' + p.points + '" data-vp="' + i + '" data-k="points" placeholder="积分">'
+    + '<label style="margin:0;font-size:12px;"><input type="checkbox" style="width:auto;" data-vp="' + i + '" data-k="active"' + (p.active !== false ? ' checked' : '') + '> 上架</label>'
+    + '<button class="btn mini danger" data-vpdel="' + i + '">✕</button>'
+    + '</div>').join('') || '<div class="note">还没有档位。</div>';
+}
+
+function collectVip() {
+  const out = [];
+  document.querySelectorAll('#vipBox [data-vp]').forEach((el) => {
+    const i = +el.dataset.vp, k = el.dataset.k;
+    out[i] = out[i] || { id: (S.vipPlans[i] || {}).id || ('vip_' + Date.now() + '_' + i), label: '', days: 0, points: 0, active: true };
+    if (k === 'active') out[i].active = el.checked;
+    else if (k === 'days' || k === 'points') out[i][k] = parseInt(el.value, 10) || 0;
+    else out[i][k] = el.value;
+  });
+  return out;
+}
+
+function renderCodes() {
+  const list = S.codes || [];
+  const rows = list.slice(-60).reverse().map((c) =>
+    '<div class="item"><span class="grow path">' + esc(c.code.slice(0, 4) + '-' + c.code.slice(4, 8) + '-' + c.code.slice(8, 12))
+    + '</span><span class="note">' + (c.kind === 'vip' ? c.value + ' 天 VIP' : c.value + ' 积分') + '</span>'
+    + '<span class="' + (c.usedAt ? 'badge comm' : 'badge pro') + '">' + (c.revoked ? '已作废' : c.usedAt ? '已使用' : '未使用') + '</span>'
+    + (c.usedAt || c.revoked ? '' : '<button class="btn mini danger" data-coderev="' + c.code + '">作废</button>')
+    + '</div>').join('');
+  $('codeList').innerHTML = rows || '<div class="note">还没有兑换码。</div>';
+}
+
+$('vipAdd').onclick = () => { S.vipPlans = collectVip(); S.vipPlans.push({ id: 'vip_' + Date.now(), label: '新档位', days: 30, points: 200, active: true }); renderVip(); };
+$('vipSave').onclick = async () => {
+  try {
+    const d = await api('/api/admin/vip/plans', { method: 'POST', body: JSON.stringify({ plans: collectVip() }) });
+    S.vipPlans = d.plans;
+    setMsg('vipMsg', '已保存 ' + d.plans.length + ' 个档位', true);
+    renderVip();
+  } catch (e) { setMsg('vipMsg', e.message, false); }
+};
+
+document.addEventListener('click', async (e) => {
+  const dv = e.target.closest('button[data-vpdel]');
+  if (dv) { S.vipPlans = collectVip(); S.vipPlans.splice(+dv.dataset.vpdel, 1); renderVip(); }
+  const cr = e.target.closest('button[data-coderev]');
+  if (cr) {
+    try { await api('/api/admin/codes/revoke', { method: 'POST', body: JSON.stringify({ code: cr.dataset.coderev }) }); await loadState(); setMsg('codeMsg', '已作废', true); }
+    catch (err) { setMsg('codeMsg', err.message, false); }
+  }
+});
+
+async function genCodes() {
+  const kind = $('codeKind').value;
+  const value = parseInt($('codeValue').value, 10) || 0;
+  const count = parseInt($('codeCount').value, 10) || 1;
+  if (value <= 0) { setMsg('codeMsg', '请填写面值', false); return; }
+  try {
+    const d = await api('/api/admin/codes', { method: 'POST', body: JSON.stringify({ kind: kind, value: value, count: count }) });
+    setMsg('codeMsg', '已生成 ' + d.codes.length + ' 个：' + d.codes.join(' '), true);
+    await loadState();
+  } catch (e) { setMsg('codeMsg', e.message, false); }
+}
+$('codeGen').onclick = genCodes;
+$('codeGen2').onclick = genCodes;
+$('codeCopy').onclick = () => {
+  const unused = (S.codes || []).filter((c) => !c.usedAt && !c.revoked).map((c) => c.code.slice(0, 4) + '-' + c.code.slice(4, 8) + '-' + c.code.slice(8, 12));
+  navigator.clipboard.writeText(unused.join('\n'));
+  setMsg('codeMsg', '已复制 ' + unused.length + ' 个未使用兑换码', true);
+};
+
+$('userRefresh').onclick = async () => {
+  try {
+    const d = await api('/api/admin/users');
+    $('userList').innerHTML = (d.users || []).map((u) =>
+      '<div class="item"><span class="grow">' + esc(u.email || u.user_id) + '</span>'
+      + '<span class="note">' + (u.balance || 0) + ' 积分</span>'
+      + '<span class="note">' + (u.vip_until ? 'VIP 至 ' + new Date(u.vip_until).toLocaleDateString() : '无 VIP') + '</span>'
+      + '</div>').join('') || '<div class="note">暂无用户</div>';
+    setMsg('userMsg', '已刷新', true);
+  } catch (e) { setMsg('userMsg', e.message, false); }
 };
 
 $('ptSave').onclick = async () => {

@@ -261,6 +261,7 @@
             <button type="button" data-type="text">复制纯文本</button>
           </div>
         </div>
+        <button class="copy-btn" id="accountBtn" style="display:none;">登录</button>
         <a class="edit-btn" id="editBtn" target="_blank" rel="noopener">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61a1.75 1.75 0 0 1-.765.444l-4.118 1.228a.75.75 0 0 1-.92-.92l1.228-4.118a1.75 1.75 0 0 1 .444-.765l8.61-8.61Z"/>
@@ -386,7 +387,7 @@
       manifest.tree.forEach(n => treeEl.appendChild(renderNode(n)));
     }
 
-    // ---------- 文档积分 ----------
+    // ---------- 账户与会话 ----------
     let pointsCfgCache = null;
     async function pointsConfig() {
       if (pointsCfgCache) return pointsCfgCache;
@@ -394,6 +395,190 @@
       return pointsCfgCache;
     }
 
+    const session = {
+      get token() { return localStorage.getItem('r6t5_sb_token') || ''; },
+      get refresh() { return localStorage.getItem('r6t5_sb_refresh') || ''; },
+      get email() { return localStorage.getItem('r6t5_sb_email') || ''; },
+      save(t, r, email) {
+        if (t) localStorage.setItem('r6t5_sb_token', t);
+        if (r) localStorage.setItem('r6t5_sb_refresh', r);
+        if (email) localStorage.setItem('r6t5_sb_email', email);
+      },
+      clear() { ['r6t5_sb_token', 'r6t5_sb_refresh', 'r6t5_sb_email'].forEach(k => localStorage.removeItem(k)); }
+    };
+
+    async function sbFetch(path, body, token) {
+      const cfg = await pointsConfig();
+      const r = await fetch(cfg.supabaseUrl.replace(/\/$/, '') + path, {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json', apikey: cfg.supabaseAnonKey },
+          token ? { Authorization: 'Bearer ' + token } : {}),
+        body: JSON.stringify(body || {})
+      });
+      let d = {};
+      try { d = await r.json(); } catch (e) {}
+      if (!r.ok) throw new Error(d.msg || d.message || d.error_description || d.error || ('HTTP ' + r.status));
+      return d;
+    }
+
+    async function sbLogin(email, password) {
+      const d = await sbFetch('/auth/v1/token?grant_type=password', { email: email, password: password });
+      if (!d.access_token) throw new Error('登录失败');
+      session.save(d.access_token, d.refresh_token, email);
+    }
+
+    async function sbSignup(email, password) {
+      const d = await sbFetch('/auth/v1/signup', { email: email, password: password });
+      if (d.access_token) { session.save(d.access_token, d.refresh_token, email); return 'logged'; }
+      return 'confirm'; // 需邮箱验证
+    }
+
+    async function myPoints() {
+      const cfg = await pointsConfig();
+      if (!cfg.authReady) return null;
+      const r = await fetch('/api/points/me', { method: 'POST', headers: { Authorization: 'Bearer ' + session.token } });
+      const d = await r.json().catch(() => ({ ok: false }));
+      return d.ok ? d.me : null;
+    }
+
+    async function refreshAccountBtn() {
+      const cfg = await pointsConfig();
+      if (!cfg.authReady) return;
+      const btn = document.getElementById('accountBtn');
+      btn.style.display = 'inline-flex';
+      if (!session.token) { btn.textContent = '登录'; btn.onclick = () => openAuthModal(); return; }
+      const me = await myPoints();
+      const vip = me && me.vip_until && new Date(me.vip_until) > new Date();
+      btn.textContent = vip ? 'VIP · ' + session.email : session.email + ' · ' + (me ? me.balance : 0) + ' 积分';
+      btn.onclick = () => openAccountModal(me);
+    }
+
+    // ---------- 登录/注册弹窗 ----------
+    function modalShell(inner) {
+      const old = document.getElementById('r6t5Modal');
+      if (old) old.remove();
+      const mask = document.createElement('div');
+      mask.id = 'r6t5Modal';
+      mask.style.cssText = 'position:fixed;inset:0;background:rgba(10,12,20,.72);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px;';
+      mask.innerHTML = '<div style="width:100%;max-width:420px;background:#fff;border-radius:14px;padding:22px;'
+        + 'box-shadow:0 20px 60px rgba(0,0,0,.35);font-size:14px;color:#1f2328;line-height:1.75;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+        + '<b style="font-size:16px;">账户</b><button id="r6t5ModalClose" style="border:none;background:none;font-size:20px;cursor:pointer;color:#888;">×</button></div>'
+        + inner + '</div>';
+      document.body.appendChild(mask);
+      mask.querySelector('#r6t5ModalClose').onclick = () => mask.remove();
+      mask.addEventListener('click', (e) => { if (e.target === mask) mask.remove(); });
+      return mask;
+    }
+
+    function openAuthModal(afterLogin) {
+      const box = modalShell(
+        '<div style="display:flex;gap:8px;margin-bottom:10px;">'
+        + '<button id="tabLogin" style="flex:1;padding:8px;border-radius:8px;border:1px solid #d0d7de;background:#0969da;color:#fff;cursor:pointer;">登录</button>'
+        + '<button id="tabSignup" style="flex:1;padding:8px;border-radius:8px;border:1px solid #d0d7de;background:#fff;cursor:pointer;">注册</button>'
+        + '</div>'
+        + '<input id="auEmail" placeholder="邮箱" style="width:100%;padding:10px;border:1px solid #d0d7de;border-radius:8px;margin-bottom:8px;">'
+        + '<input id="auPw" type="password" placeholder="密码（至少 6 位）" style="width:100%;padding:10px;border:1px solid #d0d7de;border-radius:8px;margin-bottom:10px;">'
+        + '<button id="auGo" style="width:100%;padding:10px;border:none;border-radius:8px;background:#1f7a4d;color:#fff;cursor:pointer;">登录</button>'
+        + '<div id="auMsg" style="font-size:13px;color:#c0392b;min-height:18px;margin-top:8px;"></div>'
+        + '<div style="font-size:12px;color:#888;margin-top:6px;">注册即自动开通积分账户，初始 0 积分；积分由管理员充值或用兑换码兑换。</div>'
+      );
+      let mode = 'login';
+      const setMode = (m) => {
+        mode = m;
+        box.querySelector('#auGo').textContent = m === 'login' ? '登录' : '注册';
+        box.querySelector('#tabLogin').style.background = m === 'login' ? '#0969da' : '#fff';
+        box.querySelector('#tabLogin').style.color = m === 'login' ? '#fff' : '#1f2328';
+        box.querySelector('#tabSignup').style.background = m === 'signup' ? '#0969da' : '#fff';
+        box.querySelector('#tabSignup').style.color = m === 'signup' ? '#fff' : '#1f2328';
+      };
+      setMode('login');
+      box.querySelector('#tabLogin').onclick = () => setMode('login');
+      box.querySelector('#tabSignup').onclick = () => setMode('signup');
+      box.querySelector('#auGo').onclick = async () => {
+        const email = box.querySelector('#auEmail').value.trim();
+        const pw = box.querySelector('#auPw').value.trim();
+        const msg = box.querySelector('#auMsg');
+        msg.style.color = '#c0392b';
+        if (!email || !pw) { msg.textContent = '请填写邮箱和密码'; return; }
+        try {
+          if (mode === 'login') { await sbLogin(email, pw); }
+          else {
+            const r = await sbSignup(email, pw);
+            if (r === 'confirm') {
+              msg.style.color = '#1f7a4d';
+              msg.textContent = '注册成功，请到邮箱点击验证链接后再登录';
+              return;
+            }
+          }
+          box.remove();
+          await refreshAccountBtn();
+          if (afterLogin) afterLogin();
+        } catch (e) { msg.textContent = e.message; }
+      };
+    }
+
+    function openAccountModal(me) {
+      const vip = me && me.vip_until && new Date(me.vip_until) > new Date();
+      const info = '<div style="margin-bottom:10px;">账号：<b>' + session.email + '</b></div>'
+        + '<div style="margin-bottom:10px;">积分余额：<b>' + (me ? me.balance : 0) + '</b></div>'
+        + '<div style="margin-bottom:12px;">VIP：' + (vip ? '<b style="color:#1f7a4d;">有效至 ' + new Date(me.vip_until).toLocaleString() + '</b>' : '未开通') + '</div>';
+      const box = modalShell(info
+        + '<button id="acVip" style="width:100%;padding:9px;border:none;border-radius:8px;background:#c99a1e;color:#fff;cursor:pointer;margin-bottom:8px;">开通 / 续费 VIP（积分支付）</button>'
+        + '<button id="acCode" style="width:100%;padding:9px;border:none;border-radius:8px;background:#eaeef2;color:#1f2328;cursor:pointer;margin-bottom:8px;">用兑换码充值</button>'
+        + '<button id="acOut" style="width:100%;padding:9px;border:none;border-radius:8px;background:#eaeef2;color:#1f2328;cursor:pointer;">退出登录</button>'
+        + '<div id="acMsg" style="font-size:13px;color:#c0392b;min-height:18px;margin-top:8px;"></div>');
+      box.querySelector('#acVip').onclick = () => openVipModal();
+      box.querySelector('#acOut').onclick = () => { session.clear(); box.remove(); refreshAccountBtn(); };
+      box.querySelector('#acCode').onclick = async () => {
+        const code = prompt('输入兑换码（R6T5-XXXX-XXXX-XXXX）');
+        if (!code) return;
+        try {
+          const r = await fetch('/api/points/redeem', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+            body: JSON.stringify({ code: code })
+          });
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.error || '兑换失败');
+          box.querySelector('#acMsg').style.color = '#1f7a4d';
+          box.querySelector('#acMsg').textContent = d.kind === 'vip' ? ('已兑换 ' + d.value + ' 天 VIP') : ('已兑换 ' + d.value + ' 积分');
+        } catch (e) { box.querySelector('#acMsg').textContent = e.message; }
+      };
+    }
+
+    async function openVipModal() {
+      const cfg = await pointsConfig();
+      const plans = cfg.vipPlans || [];
+      const box = modalShell('<div style="margin-bottom:10px;color:#666;font-size:13px;">VIP = 本站全部文档解锁，按积分支付，仅对当前站点生效。</div>'
+        + (plans.length ? plans.map((p) =>
+          '<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:8px;">'
+          + '<div><b>' + p.label + '</b><div style="font-size:12px;color:#888;">' + p.days + ' 天</div></div>'
+          + '<button data-plan="' + p.id + '" style="padding:8px 12px;border:none;border-radius:8px;background:#1f7a4d;color:#fff;cursor:pointer;">' + p.points + ' 积分解锁</button>'
+          + '</div>').join('') : '<div style="color:#888;">管理员还没配置 VIP 档位。</div>')
+        + '<div id="vipMsg" style="font-size:13px;color:#c0392b;min-height:18px;"></div>');
+      box.querySelectorAll('[data-plan]').forEach((b) => {
+        b.onclick = async () => {
+          if (!session.token) { box.remove(); openAuthModal(); return; }
+          const msg = box.querySelector('#vipMsg');
+          msg.style.color = '#c0392b';
+          try {
+            const r = await fetch('/api/points/buy-vip', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token },
+              body: JSON.stringify({ planId: b.dataset.plan })
+            });
+            const d = await r.json();
+            if (!r.ok || !d.ok) throw new Error(d.error || '开通失败');
+            msg.style.color = '#1f7a4d';
+            msg.textContent = '开通成功：' + d.plan + '，剩余积分 ' + d.balance + '，正在刷新…';
+            setTimeout(() => location.reload(), 900);
+          } catch (e) { msg.textContent = e.message; }
+        };
+      });
+    }
+
+    // ---------- 文档锁定面板 ----------
     function buildLockPanel(info) {
       const box = document.createElement('div');
       box.style.cssText = 'margin:28px 0 8px;padding:18px;border:1px solid #e3c26a;border-radius:10px;'
@@ -408,55 +593,34 @@
         return box;
       }
 
+      if (!session.token) {
+        box.innerHTML = '<div style="font-weight:600;margin-bottom:10px;">' + head + '</div>'
+          + '<div style="color:#666;font-size:13px;margin-bottom:8px;">登录后可用积分解锁，或开通 VIP 全站解锁。</div>';
+        const loginBtn = document.createElement('button');
+        loginBtn.textContent = '登录 / 注册';
+        loginBtn.style.cssText = 'padding:9px 16px;border:none;border-radius:8px;background:#c99a1e;color:#fff;cursor:pointer;';
+        loginBtn.onclick = () => openAuthModal(() => location.reload());
+        box.appendChild(loginBtn);
+        return box;
+      }
+
       box.innerHTML = '<div style="font-weight:600;margin-bottom:10px;">' + head + '</div>'
-        + '<div id="lockStep1"><div style="color:#666;font-size:13px;margin-bottom:6px;">用邮箱接收验证码后解锁（积分由管理员充值）。</div>'
-        + '<input id="lockEmail" placeholder="you@example.com" style="width:100%;max-width:320px;padding:9px;border:1px solid #d8c79a;border-radius:8px;">'
-        + '<button id="lockSend" style="margin-left:8px;padding:9px 14px;border:none;border-radius:8px;background:#c99a1e;color:#fff;cursor:pointer;">发送验证码</button>'
-        + '<div id="lockStep2" style="display:none;margin-top:10px;">'
-        + '<input id="lockCode" placeholder="6 位验证码" style="width:140px;padding:9px;border:1px solid #d8c79a;border-radius:8px;">'
-        + '<button id="lockUnlock" style="margin-left:8px;padding:9px 14px;border:none;border-radius:8px;background:#1f7a4d;color:#fff;cursor:pointer;">解锁全文（' + info.price + ' 积分）</button>'
-        + '</div><div id="lockMsg" style="font-size:13px;margin-top:8px;min-height:18px;"></div></div>';
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+        + '<button id="lockPay" style="padding:9px 14px;border:none;border-radius:8px;background:#1f7a4d;color:#fff;cursor:pointer;">用 ' + info.price + ' 积分解锁全文</button>'
+        + '<button id="lockVip" style="padding:9px 14px;border:none;border-radius:8px;background:#c99a1e;color:#fff;cursor:pointer;">开通 VIP 全站解锁</button>'
+        + '</div><div id="lockMsg" style="font-size:13px;margin-top:8px;min-height:18px;color:#c0392b;"></div>';
 
       setTimeout(() => {
-        const msg = (t, ok) => { const m = box.querySelector('#lockMsg'); m.textContent = t; m.style.color = ok ? '#1f7a4d' : '#c0392b'; };
-        const sb = async (path, body, token) => {
-          const cfg = await pointsConfig();
-          const r = await fetch(cfg.supabaseUrl.replace(/\/$/, '') + path, {
-            method: 'POST',
-            headers: Object.assign({ 'Content-Type': 'application/json', apikey: cfg.supabaseAnonKey },
-              token ? { Authorization: 'Bearer ' + token } : {}),
-            body: JSON.stringify(body || {})
-          });
-          let d = {};
-          try { d = await r.json(); } catch (e) {}
-          if (!r.ok) throw new Error(d.msg || d.message || d.error_description || d.error || ('HTTP ' + r.status));
-          return d;
-        };
-
-        box.querySelector('#lockSend').onclick = async () => {
-          const email = box.querySelector('#lockEmail').value.trim();
-          if (!email) return msg('请填写邮箱', false);
+        const msg = box.querySelector('#lockMsg');
+        box.querySelector('#lockPay').onclick = async () => {
           try {
-            await sb('/auth/v1/otp', { email: email, create_user: true });
-            box.querySelector('#lockStep2').style.display = 'block';
-            msg('验证码已发送，请查收邮箱', true);
-            box.dataset.email = email;
-          } catch (e) { msg('发送失败：' + e.message, false); }
+            const d = await sbFetch('/rest/v1/rpc/r6t5_unlock_doc', { p_doc: info.path, p_cost: Number(info.price) }, session.token);
+            msg.style.color = '#1f7a4d';
+            msg.textContent = '解锁成功，剩余积分 ' + d + '，正在刷新…';
+            setTimeout(() => location.reload(), 800);
+          } catch (e) { msg.textContent = e.message; }
         };
-
-        box.querySelector('#lockUnlock').onclick = async () => {
-          const email = box.dataset.email;
-          const code = box.querySelector('#lockCode').value.trim();
-          if (!code) return msg('请输入验证码', false);
-          try {
-            const v = await sb('/auth/v1/verify', { type: 'email', email: email, token: code });
-            if (!v.access_token) throw new Error('验证失败');
-            localStorage.setItem('r6t5_sb_token', v.access_token);
-            const bal = await sb('/rest/v1/rpc/r6t5_unlock_doc', { p_doc: info.path, p_cost: Number(info.price) }, v.access_token);
-            msg('解锁成功，剩余积分 ' + bal + '，正在刷新…', true);
-            setTimeout(() => location.reload(), 900);
-          } catch (e) { msg('解锁失败：' + e.message, false); }
-        };
+        box.querySelector('#lockVip').onclick = () => openVipModal();
       }, 0);
       return box;
     }
@@ -502,6 +666,8 @@
         a.classList.toggle('active', a.dataset.path === path);
       });
     }
+
+    refreshAccountBtn();
 
     (async () => {
       try {

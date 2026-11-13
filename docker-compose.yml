@@ -15,5 +15,7 @@ services:
       SITE_HOST: ""
       # 可选：TXT 查询用的 DoH 接口（默认 Cloudflare）
       # DNS_ENDPOINT: "https://cloudflare-dns.com/dns-query"
+      # 可选：service_role key（仅服务端使用，用于后台用户管理）
+      # SUPABASE_SERVICE_KEY: ""
       # 可选：固定管理员密码（不设则首次启动自动生成并打印）
       # ADMIN_PASSWORD: ""

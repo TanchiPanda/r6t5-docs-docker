@@ -90,6 +90,20 @@ select public.r6t5_grant('USER_UUID'::uuid, 100);
 - `r6t5_accounts` / `r6t5_unlocks` 开了 RLS，只允许本人读；
 - 扣分与写解锁记录在 `security definer` 函数内完成，客户端无法直接改余额。
 
+## 账号体系与 VIP（v2）
+
+**Supabase 只有一处配置**：后台「文档积分」里的 URL + anon key，注册/登录/积分/解锁/VIP/兑换码全在这一个项目里。
+
+- **站内注册登录**：邮箱 + 密码（`/auth/v1/signup`、`token?grant_type=password`）。注册即由触发器自动建积分账户（余额 0）；若开了邮箱验证，需点验证链接后才能登录。
+- **积分支付 VIP**：VIP = 当前站点全部文档解锁，仅对本部署实例生效。后台「会员档位」可配多组（名称 / 天数 / 积分价 / 上架），读者在账户面板用积分购买，服务端校验档位后调 `r6t5_buy_vip(p_days,p_points)` 原子扣分并叠加到期时间。
+- **计价规则**：文档树单篇价格为准；`0` 或留空 = 免费；可读比例 `100%` = 全站免费；VIP 有效时直接全文、不扣分。
+- **兑换码**：后台生成（积分 / VIP 天数），读者在账户面板兑换；一次性使用、可作废。
+- **用户管理**：需在环境变量里配 `SUPABASE_SERVICE_KEY`（service_role，只放服务端）。不配也能跑，只是后台看不到用户列表，需去 Supabase 控制台管理。
+
+**建库脚本**：`sql/points.sql` + `sql/points_v2.sql`，后台「查看建库 SQL」会把两份拼好直接显示，整段执行即可（可重复执行）。v2 增加：账户 `email/vip_until/banned`、注册触发器、`r6t5_me / r6t5_vip_status / r6t5_buy_vip / r6t5_redeem_points / r6t5_redeem_vip`、VIP 订单表与 RLS。
+
+**不提供**人民币充值/提现：积分只能靠兑换码、管理员加分或你自己接的支付回调入账（回调里调 `r6t5_grant` / `r6t5_activate_vip`）。
+
 ## 启动门禁：改过版权但没授权，直接不启动
 
 容器每次启动都会校验（不通过则 `exit 1`，服务不会起来）：

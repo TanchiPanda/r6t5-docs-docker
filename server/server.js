@@ -37,6 +37,8 @@ const P = {
   license: path.join(DATA_DIR, 'license.json'),
   licenses: path.join(DATA_DIR, 'licenses.json'), // 域名/仓库授权清单
   points: path.join(DATA_DIR, 'points.json'),     // 文档积分设置
+  vip: path.join(DATA_DIR, 'vip.json'),           // VIP 档位（积分计价）
+  codes: path.join(DATA_DIR, 'codes.json'),       // 兑换码
   admin: path.join(DATA_DIR, 'admin.json'),
 };
 
@@ -126,6 +128,14 @@ function bootstrap() {
   }
   if (!fs.existsSync(P.license)) writeJson(P.license, { mode: 'community', key: '', host: '', activatedAt: 0 });
   if (!fs.existsSync(P.licenses)) writeJson(P.licenses, { domains: [], repos: [] });
+  if (!fs.existsSync(P.vip)) writeJson(P.vip, {
+    plans: [
+      { id: 'vip_7', label: '7 天', days: 7, points: 60, active: true },
+      { id: 'vip_30', label: '30 天', days: 30, points: 200, active: true },
+      { id: 'vip_365', label: '365 天', days: 365, points: 1800, active: true },
+    ],
+  });
+  if (!fs.existsSync(P.codes)) writeJson(P.codes, { codes: [] });
   if (!fs.existsSync(P.points)) writeJson(P.points, {
     enabled: false, supabaseUrl: '', supabaseAnonKey: '', adminEmail: '',
     freeRatio: 30, defaultCost: 10,
@@ -301,6 +311,44 @@ async function hasUnlock(req, cfg, rel) {
     if (!r.ok) return false;
     const rows = await r.json();
     return Array.isArray(rows) && rows.length > 0;
+  } catch (_) { return false; }
+}
+
+const vipStore = () => readJson(P.vip, { plans: [] });
+const codeStore = () => readJson(P.codes, { codes: [] });
+
+async function supaRpc(cfg, token, fn, body) {
+  const url = cfg.supabaseUrl.replace(/\/$/, '') + '/rest/v1/rpc/' + fn;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: cfg.supabaseAnonKey,
+        Authorization: 'Bearer ' + token,
+      },
+      body: JSON.stringify(body || {}),
+      signal: ctrl.signal,
+    });
+    const text = await r.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (_) {}
+    if (!r.ok) {
+      const msg = (data && (data.message || data.error_description || data.error || data.hint)) || ('HTTP ' + r.status);
+      throw new Error(msg);
+    }
+    return data;
+  } finally { clearTimeout(t); }
+}
+
+async function isVip(req, cfg) {
+  const token = bearer(req);
+  if (!token) return false;
+  try {
+    const d = await supaRpc(cfg, token, 'r6t5_vip_status', {});
+    return !!(d && d.active);
   } catch (_) { return false; }
 }
 
@@ -493,6 +541,8 @@ async function api(req, res, url) {
       ok: true, pro: isPro(h), host: h, license: lic,
       licenses: licStore(), reasons: proReasons(h),
       points: pointsCfg(), pointsReady: pointsReady(pointsCfg()),
+      vipPlans: vipStore().plans || [], codes: codeStore().codes || [],
+      serviceReady: !!process.env.SUPABASE_SERVICE_KEY,
       site: readJson(P.site, {}), attribution: cfg.attribution, canonical: CANON,
       tree: readJson(P.tree, { tree: [] }).tree,
     });
@@ -580,7 +630,58 @@ async function api(req, res, url) {
       freeRatio: on ? cfg.freeRatio : 0,
       adminEmail: on ? cfg.adminEmail : '',
       ready: on ? pointsReady(cfg) : false,
+      authReady: on ? pointsReady(cfg) : false,
+      vipPlans: on ? (vipStore().plans || []).filter((x) => x.active !== false) : [],
     });
+  }
+
+  if (p === '/api/points/me' && req.method === 'POST') {
+    const cfg = pointsCfg();
+    if (!cfg.enabled || !isPro(host(req)) || !pointsReady(cfg)) return send(res, 400, { ok: false, error: '积分系统未启用' });
+    const token = bearer(req);
+    if (!token) return send(res, 401, { ok: false, error: '未登录' });
+    try {
+      const d = await supaRpc(cfg, token, 'r6t5_me', {});
+      return send(res, 200, { ok: true, me: d });
+    } catch (e) { return send(res, 401, { ok: false, error: e.message }); }
+  }
+
+  if (p === '/api/points/buy-vip' && req.method === 'POST') {
+    const cfg = pointsCfg();
+    if (!cfg.enabled || !isPro(host(req)) || !pointsReady(cfg)) return send(res, 400, { ok: false, error: '积分系统未启用' });
+    const token = bearer(req);
+    if (!token) return send(res, 401, { ok: false, error: '请先登录' });
+    const b = await body(req);
+    const plan = (vipStore().plans || []).find((x) => x.id === b.planId && x.active !== false);
+    if (!plan) return send(res, 404, { ok: false, error: '该档位不存在或已下架' });
+    try {
+      const d = await supaRpc(cfg, token, 'r6t5_buy_vip', { p_days: plan.days, p_points: plan.points });
+      return send(res, 200, { ok: true, balance: d.balance, vipUntil: d.vip_until, plan: plan.label });
+    } catch (e) { return send(res, 400, { ok: false, error: e.message }); }
+  }
+
+  if (p === '/api/points/redeem' && req.method === 'POST') {
+    const cfg = pointsCfg();
+    if (!cfg.enabled || !isPro(host(req)) || !pointsReady(cfg)) return send(res, 400, { ok: false, error: '积分系统未启用' });
+    const token = bearer(req);
+    if (!token) return send(res, 401, { ok: false, error: '请先登录' });
+    const b = await body(req);
+    const code = String(b.code || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+    if (code.length < 8) return send(res, 400, { ok: false, error: '兑换码格式不正确' });
+    const store = codeStore();
+    const rec = (store.codes || []).find((x) => x.code === code);
+    if (!rec) return send(res, 404, { ok: false, error: '兑换码不存在' });
+    if (rec.revoked) return send(res, 400, { ok: false, error: '兑换码已作废' });
+    if (rec.usedAt) return send(res, 400, { ok: false, error: '兑换码已被使用' });
+    try {
+      let result;
+      if (rec.kind === 'vip') result = await supaRpc(cfg, token, 'r6t5_redeem_vip', { p_days: rec.value });
+      else result = await supaRpc(cfg, token, 'r6t5_redeem_points', { p_amount: rec.value });
+      rec.usedAt = Date.now();
+      rec.usedBy = crypto.createHash('sha256').update(token).digest('hex').slice(0, 16);
+      writeJson(P.codes, store);
+      return send(res, 200, { ok: true, kind: rec.kind, value: rec.value, result: result });
+    } catch (e) { return send(res, 400, { ok: false, error: e.message }); }
   }
 
   if (p === '/api/admin/points' && req.method === 'POST') {
@@ -604,6 +705,84 @@ async function api(req, res, url) {
     return send(res, 200, { ok: true, points: cfg, ready: pointsReady(cfg) });
   }
 
+  if (p === '/api/admin/vip' && req.method === 'GET') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    return send(res, 200, { ok: true, plans: vipStore().plans || [] });
+  }
+
+  if (p === '/api/admin/vip/plans' && req.method === 'POST') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const b = await body(req);
+    if (!Array.isArray(b.plans)) return send(res, 400, { ok: false, error: 'plans 必须是数组' });
+    const st = vipStore();
+    st.plans = b.plans.slice(0, 20).map((x, i) => ({
+      id: String(x.id || 'vip_' + Date.now() + '_' + i).slice(0, 40),
+      label: String(x.label || 'VIP').slice(0, 40),
+      days: Math.max(1, Math.floor(Number(x.days) || 0)),
+      points: Math.max(0, Math.floor(Number(x.points) || 0)),
+      active: x.active !== false,
+    })).filter((x) => x.days > 0);
+    writeJson(P.vip, st);
+    return send(res, 200, { ok: true, plans: st.plans });
+  }
+
+  if (p === '/api/admin/codes' && req.method === 'GET') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    return send(res, 200, { ok: true, codes: codeStore().codes || [] });
+  }
+
+  if (p === '/api/admin/codes' && req.method === 'POST') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const b = await body(req);
+    const kind = b.kind === 'vip' ? 'vip' : 'points';
+    const value = Math.max(1, Math.floor(Number(b.value) || 0));
+    const count = Math.max(1, Math.min(200, Math.floor(Number(b.count) || 1)));
+    const st = codeStore();
+    const made = [];
+    const AL = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+    for (let i = 0; i < count; i++) {
+      let raw = '';
+      for (let j = 0; j < 12; j++) raw += AL[crypto.randomInt(0, 32)];
+      const code = raw;
+      st.codes.push({ code: code, kind: kind, value: value, createdAt: Date.now(), usedAt: 0, usedBy: '', revoked: false });
+      made.push('R6T5-' + raw.slice(0, 4) + '-' + raw.slice(4, 8) + '-' + raw.slice(8, 12));
+    }
+    writeJson(P.codes, st);
+    return send(res, 200, { ok: true, codes: made });
+  }
+
+  if (p === '/api/admin/codes/revoke' && req.method === 'POST') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const b = await body(req);
+    const code = String(b.code || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+    const st = codeStore();
+    const rec = (st.codes || []).find((x) => x.code === code);
+    if (!rec) return send(res, 404, { ok: false, error: '兑换码不存在' });
+    rec.revoked = true;
+    writeJson(P.codes, st);
+    return send(res, 200, { ok: true });
+  }
+
+  if (p === '/api/admin/users' && req.method === 'GET') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const cfg = pointsCfg();
+    const serviceKey = process.env.SUPABASE_SERVICE_KEY || '';
+    if (!pointsReady(cfg) || !serviceKey) {
+      return send(res, 400, {
+        ok: false,
+        error: '查看用户列表需要 Supabase service_role key（设置环境变量 SUPABASE_SERVICE_KEY 后重启），或直接用 Supabase 控制台管理',
+      });
+    }
+    try {
+      const r = await fetch(cfg.supabaseUrl + '/rest/v1/r6t5_accounts?select=user_id,email,balance,vip_until,banned&order=balance.desc&limit=100', {
+        headers: { apikey: serviceKey, Authorization: 'Bearer ' + serviceKey },
+      });
+      const rows = await r.json();
+      if (!r.ok) return send(res, 400, { ok: false, error: (rows && rows.message) || ('HTTP ' + r.status) });
+      return send(res, 200, { ok: true, users: rows });
+    } catch (e) { return send(res, 400, { ok: false, error: e.message }); }
+  }
+
   if (p === '/api/admin/points/test' && req.method === 'POST') {
     if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
     const cfg = pointsCfg();
@@ -622,7 +801,9 @@ async function api(req, res, url) {
   if (p === '/api/admin/points/sql') {
     if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
     try {
-      return send(res, 200, { ok: true, sql: fs.readFileSync(path.join(ROOT, 'sql', 'points.sql'), 'utf8') });
+      const base = fs.readFileSync(path.join(ROOT, 'sql', 'points.sql'), 'utf8');
+      const v2 = fs.readFileSync(path.join(ROOT, 'sql', 'points_v2.sql'), 'utf8');
+      return send(res, 200, { ok: true, sql: base + '\n\n-- ==================== v2：账户 / VIP / 兑换码 ====================\n\n' + v2 });
     } catch (e) { return send(res, 500, { ok: false, error: '读取 SQL 失败' }); }
   }
 
@@ -750,6 +931,11 @@ async function serveDoc(req, res, full, rel) {
   const gated = pro && cfg.enabled && price > 0;
   if (!gated) {
     res.writeHead(200, { 'Content-Type': MIME['.md'], 'Cache-Control': 'no-cache' });
+    return res.end(raw);
+  }
+
+  if (await isVip(req, cfg)) {
+    res.writeHead(200, { 'Content-Type': MIME['.md'], 'Cache-Control': 'no-cache', 'X-R6T5-Vip': '1' });
     return res.end(raw);
   }
 
