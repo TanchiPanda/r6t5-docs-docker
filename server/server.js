@@ -35,8 +35,12 @@ const P = {
   site: path.join(DATA_DIR, 'site.json'),
   tree: path.join(DATA_DIR, 'tree.json'),
   license: path.join(DATA_DIR, 'license.json'),
+  licenses: path.join(DATA_DIR, 'licenses.json'), // 域名/仓库授权清单
   admin: path.join(DATA_DIR, 'admin.json'),
 };
+
+// 只做“记录值对不对”的判断，不查域名是否存在
+const DNS_ENDPOINT = process.env.DNS_ENDPOINT || 'https://cloudflare-dns.com/dns-query';
 
 const sessions = new Map(); // sid -> {until}
 
@@ -120,6 +124,7 @@ function bootstrap() {
     writeJson(P.tree, { tree: m.tree || [] });
   }
   if (!fs.existsSync(P.license)) writeJson(P.license, { mode: 'community', key: '', host: '', activatedAt: 0 });
+  if (!fs.existsSync(P.licenses)) writeJson(P.licenses, { domains: [], repos: [] });
   ensureAdmin();
   syncManifest();
 }
@@ -201,15 +206,63 @@ function docTitle(p) {
 
 /* ---------------- 站点配置 ---------------- */
 
-function isPro() {
-  // 唯一途径：管理后台输入有效产品密钥（写入 license.json）
-  return readJson(P.license, {}).mode === 'pro';
+/* ---------------- 域名 / 仓库授权（DNS TXT 证明） ---------------- */
+
+const licStore = () => readJson(P.licenses, { domains: [], repos: [] });
+
+function normHost(h) {
+  return String(h || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '');
 }
 
-function siteConfig() {
+function hostCovered(host) {
+  const h = normHost(host);
+  if (!h) return false;
+  return licStore().domains.some((d) => d.status === 'verified' && (h === d.host || h.endsWith('.' + d.host)));
+}
+
+async function fetchTxt(name) {
+  try {
+    const url = DNS_ENDPOINT + '?name=' + encodeURIComponent(name) + '&type=TXT';
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch(url, { headers: { accept: 'application/dns-json' }, signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.Answer || [])
+      .filter((a) => a.type === 16 || a.type === 'TXT')
+      .map((a) => String(a.data).replace(/\\"/g, '"').replace(/^"/, '').replace(/"$/, ''));
+  } catch (_) { return []; }
+}
+
+async function verifyDomainToken(host, token) {
+  const expect = 'r6t5-verify=' + token;
+  for (const n of ['_r6t5-verify.' + host, host]) {
+    const txts = await fetchTxt(n);
+    if (txts.some((x) => x.trim() === expect)) return true;
+  }
+  return false;
+}
+
+function proReasons(host) {
+  const lic = readJson(P.license, {});
+  const reasons = [];
+  if (lic.mode === 'pro') reasons.push('密钥');
+  const l = licStore();
+  if (host ? hostCovered(host) : l.domains.some((d) => d.status === 'verified')) reasons.push('域名');
+  if (l.repos.length) reasons.push('仓库');
+  return reasons;
+}
+
+function isPro(host) {
+  // 三种授权来源：产品密钥 / 已验证域名（当前 host 匹配其本身或子域）/ 授权仓库
+  return proReasons(host).length > 0;
+}
+
+function siteConfig(host) {
   const s = readJson(P.site, {});
   const canon = CANON;
-  const att = isPro()
+  const att = isPro(host)
     ? Object.assign({}, canon, s.attribution || {})
     : Object.assign({}, canon); // 社区版：无论存了什么，都强制用标准署名
   return {
@@ -217,12 +270,12 @@ function siteConfig() {
     repo: s.repo || '用户名/仓库名',
     defaultPath: s.defaultPath || 'docs/index.md',
     attribution: att,
-    pro: isPro(),
+    pro: isPro(host),
   };
 }
 
-function renderIndex() {
-  const cfg = siteConfig();
+function renderIndex(host) {
+  const cfg = siteConfig(host);
   let html = fs.readFileSync(path.join(SITE_DIR, 'index.html'), 'utf8');
   const inject = '<script>window.R6T5=' + JSON.stringify(cfg).replace(/</g, '\\u003c') + ';</script>\n</head>';
   html = html.replace('</head>', inject);
@@ -372,13 +425,86 @@ async function api(req, res, url) {
 
   if (p === '/api/admin/state') {
     if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
-    const cfg = siteConfig();
+    const h = SITE_HOST || host(req);
+    const cfg = siteConfig(h);
     const lic = readJson(P.license, {});
     return send(res, 200, {
-      ok: true, pro: isPro(), host: SITE_HOST || host(req), license: lic,
+      ok: true, pro: isPro(h), host: h, license: lic,
+      licenses: licStore(), reasons: proReasons(h),
       site: readJson(P.site, {}), attribution: cfg.attribution, canonical: CANON,
       tree: readJson(P.tree, { tree: [] }).tree,
     });
+  }
+
+  if (p === '/api/admin/domain/add' && req.method === 'POST') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const b = await body(req);
+    const h = normHost(b.host);
+    if (!h || !/^[a-z0-9.-]+$/.test(h) || !h.includes('.')) return send(res, 400, { ok: false, error: '域名格式不正确' });
+    const l = licStore();
+    if (l.domains.some((d) => d.host === h)) return send(res, 409, { ok: false, error: '该域名已在列表中' });
+    const token = crypto.randomBytes(24).toString('hex');
+    l.domains.push({ host: h, token: token, status: 'pending', addedAt: Date.now(), verifiedAt: 0 });
+    writeJson(P.licenses, l);
+    return send(res, 200, {
+      ok: true, host: h, token: token,
+      recordName: '_r6t5-verify.' + h,
+      recordValue: 'r6t5-verify=' + token,
+    });
+  }
+
+  if (p === '/api/admin/domain/verify' && req.method === 'POST') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const b = await body(req);
+    const h = normHost(b.host);
+    const l = licStore();
+    const d = l.domains.find((x) => x.host === h);
+    if (!d) return send(res, 404, { ok: false, error: '域名不在列表中' });
+    if (d.status === 'verified') return send(res, 200, { ok: true, already: true });
+    const ok2 = await verifyDomainToken(d.host, d.token);
+    if (!ok2) {
+      return send(res, 400, {
+        ok: false,
+        error: '未查到匹配的 TXT 记录（DNS 可能延迟 1–10 分钟）。只比对记录值，不检查域名是否存在。',
+        recordName: '_r6t5-verify.' + d.host,
+        recordValue: 'r6t5-verify=' + d.token,
+      });
+    }
+    d.status = 'verified';
+    d.verifiedAt = Date.now();
+    writeJson(P.licenses, l);
+    return send(res, 200, { ok: true, host: d.host });
+  }
+
+  if (p === '/api/admin/domain/remove' && req.method === 'POST') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const b = await body(req);
+    const l = licStore();
+    const h = normHost(b.host);
+    l.domains = l.domains.filter((d) => d.host !== h);
+    writeJson(P.licenses, l);
+    return send(res, 200, { ok: true });
+  }
+
+  if (p === '/api/admin/repo/add' && req.method === 'POST') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const b = await body(req);
+    const repo = String(b.repo || '').trim().replace(/^https?:\/\/github\.com\//, '').replace(/^\/+|\/+$/g, '');
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return send(res, 400, { ok: false, error: '格式应为 owner/repo' });
+    const l = licStore();
+    if (l.repos.some((r) => r.repo.toLowerCase() === repo.toLowerCase())) return send(res, 409, { ok: false, error: '该仓库已在列表中' });
+    l.repos.push({ repo: repo, addedAt: Date.now() });
+    writeJson(P.licenses, l);
+    return send(res, 200, { ok: true, repo: repo });
+  }
+
+  if (p === '/api/admin/repo/remove' && req.method === 'POST') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const b = await body(req);
+    const l = licStore();
+    l.repos = l.repos.filter((r) => r.repo !== b.repo);
+    writeJson(P.licenses, l);
+    return send(res, 200, { ok: true });
   }
 
   if (p === '/api/admin/key' && req.method === 'POST') {
@@ -401,7 +527,7 @@ async function api(req, res, url) {
     if (typeof b.defaultPath === 'string') s.defaultPath = b.defaultPath.trim();
     let attrIgnored = false;
     if (b.attribution && typeof b.attribution === 'object') {
-      if (!isPro()) {
+      if (!isPro(SITE_HOST || host(req))) {
         attrIgnored = true; // 社区版：忽略署名修改，其余设置照常保存
       } else {
       const att = Object.assign({}, CANON, s.attribution || {});
@@ -509,7 +635,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/' || url.pathname === '/index.html') {
     try {
-      if (!isPro()) {
+      if (!isPro(host(req))) {
         const problems = integrityProblems();
         if (problems.length) {
           res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -522,7 +648,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
-      return res.end(renderIndex());
+      return res.end(renderIndex(host(req)));
     } catch (e) {
       return send(res, 500, { ok: false, error: '站点尚未初始化：' + e.message });
     }
@@ -549,10 +675,10 @@ bootstrap();
     console.error('------------------------------------------------------------');
     problems.forEach((x) => console.error('  - ' + x));
     console.error('------------------------------------------------------------');
-    console.error('  处理方式（三选一）：');
+    console.error('  处理方式：');
     console.error('   1) 恢复原始文件：rm -f ' + SITE_DIR + '/index.html ' + SITE_DIR + '/LICENSE');
     console.error('      并删除 ' + P.site + ' 中的 attribution 字段，然后重启');
-    console.error('   2) 在管理后台输入 15 位产品密钥激活专业版后重启（唯一放行方式）');
+    console.error('   2) 在管理后台输入 15 位产品密钥，或添加并验证域名 / 添加授权仓库');
     console.error('============================================================');
     console.error('');
     process.exit(1);

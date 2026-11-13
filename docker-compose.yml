@@ -13,5 +13,7 @@ services:
       LICENSE_API: "https://lic.r6t5.dpdns.org"
       # 当前站点域名；留空则取请求的 Host。用于密钥绑定校验
       SITE_HOST: ""
+      # 可选：TXT 查询用的 DoH 接口（默认 Cloudflare）
+      # DNS_ENDPOINT: "https://cloudflare-dns.com/dns-query"
       # 可选：固定管理员密码（不设则首次启动自动生成并打印）
       # ADMIN_PASSWORD: ""

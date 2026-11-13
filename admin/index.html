@@ -77,6 +77,26 @@
         </div>
         <div class="msg" id="keyMsg"></div>
       </div>
+
+      <div class="fieldset">
+        <div class="note">域名授权：只校验 DNS TXT 记录值对不对，<b>不检查域名是否存在</b>。验证通过后，该域名及其子域访问本站即为专业版。</div>
+        <div class="row" style="margin-top:8px;">
+          <input type="text" id="domInput" class="grow" placeholder="docs.example.com" autocomplete="off">
+          <button class="btn primary" id="domAddBtn">添加域名</button>
+        </div>
+        <div class="msg" id="domMsg"></div>
+        <div id="domList"></div>
+      </div>
+
+      <div class="fieldset">
+        <div class="note">授权仓库：填 owner/repo（如 TanchiPanda/r6t5-docs）。存在即视为本站已授权。</div>
+        <div class="row" style="margin-top:8px;">
+          <input type="text" id="repoInput" class="grow" placeholder="owner/repo" autocomplete="off">
+          <button class="btn primary" id="repoAddBtn">添加仓库</button>
+        </div>
+        <div class="msg" id="repoMsg"></div>
+        <div id="repoList"></div>
+      </div>
     </div>
 
     <!-- 站点设置 -->
@@ -168,9 +188,20 @@ async function loadState() {
   const d = await api('/api/admin/state');
   S.pro = d.pro; S.tree = d.tree || [];
   badge(d.pro);
-  $('licInfo').innerHTML = d.pro
-    ? '已激活 · 绑定域名 <b>' + esc(d.license.host || d.host) + '</b> · 激活时间 ' + new Date(d.license.activatedAt || Date.now()).toLocaleString()
-    : '当前为社区版：署名逐字符锁定（' + esc(d.canonical.canonical) + '），页脚显示推广提示。输入密钥后即可修改署名与隐藏提示。';
+  const reason = (d.reasons || []).join(' + ');
+  const hasVerified = (d.licenses && d.licenses.domains || []).some((x) => x.status === 'verified');
+  let info;
+  if (d.pro) {
+    info = '专业版 · 授权来源：<b>' + esc(reason) + '</b> · 当前域名 <b>' + esc(d.host) + '</b>';
+  } else if (hasVerified) {
+    info = '当前域名 <b>' + esc(d.host) + '</b> 不在已授权域名列表内，因此按社区版展示（署名锁定 + 推广提示）。'
+      + '已授权的域名及其子域访问时自动为专业版；本机调试可用 localhost 添加域名并验证，或直接输入密钥。';
+  } else {
+    info = '当前为社区版：署名逐字符锁定（' + esc(d.canonical.canonical) + '），页脚显示推广提示。'
+      + '可用密钥 / 已验证域名 / 授权仓库任一方式激活。';
+  }
+  $('licInfo').innerHTML = info;
+  renderLic(d.licenses || { domains: [], repos: [] });
   const site = d.site || {};
   $('siteTitle').value = site.title || 'r6t5 文档';
   $('siteRepo').value = site.repo || '';
@@ -189,6 +220,71 @@ async function loadState() {
 }
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+function renderLic(l) {
+  const doms = l.domains || [];
+  $('domList').innerHTML = doms.length ? doms.map((d) => {
+    const okd = d.status === 'verified';
+    return '<div class="item">'
+      + '<span class="grow">' + esc(d.host) + (okd
+        ? '<span class="badge pro" style="margin-left:8px;">已验证</span>'
+        : '<span class="badge comm" style="margin-left:8px;">待验证</span>') + '</span>'
+      + (okd ? '' : '<button class="btn mini" data-domverify="' + esc(d.host) + '">验证 TXT</button>')
+      + '<button class="btn mini danger" data-domdel="' + esc(d.host) + '">✕</button>'
+      + '</div>' + (okd ? '' : '<div class="path" style="padding:4px 0 8px;">TXT：_r6t5-verify.' + esc(d.host) + ' = r6t5-verify=' + esc(d.token) + '</div>');
+  }).join('') : '<div class="note">还没有添加域名。</div>';
+
+  const repos = l.repos || [];
+  $('repoList').innerHTML = repos.length ? repos.map((r) =>
+    '<div class="item"><span class="grow">' + esc(r.repo) + '</span>'
+    + '<button class="btn mini danger" data-repodel="' + esc(r.repo) + '">✕</button></div>').join('')
+    : '<div class="note">还没有添加授权仓库。</div>';
+}
+
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('button[data-domverify],button[data-domdel],button[data-repodel]');
+  if (!t) return;
+  const h = t.dataset.domverify, hd = t.dataset.domdel, rp = t.dataset.repodel;
+  try {
+    if (h) {
+      const d = await api('/api/admin/domain/verify', { method: 'POST', body: JSON.stringify({ host: h }) });
+      setMsg('domMsg', d.already ? '该域名已验证' : '验证通过：' + h, true);
+    }
+    if (hd) {
+      if (!confirm('移除域名授权 ' + hd + '？')) return;
+      await api('/api/admin/domain/remove', { method: 'POST', body: JSON.stringify({ host: hd }) });
+      setMsg('domMsg', '已移除 ' + hd, true);
+    }
+    if (rp) {
+      if (!confirm('移除授权仓库 ' + rp + '？')) return;
+      await api('/api/admin/repo/remove', { method: 'POST', body: JSON.stringify({ repo: rp }) });
+      setMsg('repoMsg', '已移除 ' + rp, true);
+    }
+    await loadState();
+  } catch (err) { setMsg('domMsg', err.message, false); }
+});
+
+$('domAddBtn').onclick = async () => {
+  const h = $('domInput').value.trim();
+  if (!h) { setMsg('domMsg', '请输入域名', false); return; }
+  try {
+    const d = await api('/api/admin/domain/add', { method: 'POST', body: JSON.stringify({ host: h }) });
+    $('domInput').value = '';
+    setMsg('domMsg', '已添加。请在 DNS 添加 TXT：' + d.recordName + ' = ' + d.recordValue, true);
+    await loadState();
+  } catch (e) { setMsg('domMsg', e.message, false); }
+};
+
+$('repoAddBtn').onclick = async () => {
+  const r = $('repoInput').value.trim();
+  if (!r) { setMsg('repoMsg', '请输入 owner/repo', false); return; }
+  try {
+    await api('/api/admin/repo/add', { method: 'POST', body: JSON.stringify({ repo: r }) });
+    $('repoInput').value = '';
+    setMsg('repoMsg', '已添加授权仓库 ' + r, true);
+    await loadState();
+  } catch (e) { setMsg('repoMsg', e.message, false); }
+};
 
 async function loadFiles() {
   const d = await api('/api/admin/files');
