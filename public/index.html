@@ -284,7 +284,54 @@
     .prop:last-child{border-bottom:none}
     .prop span{color:#8d99bb}
     .prop b{font-weight:600;word-break:break-all;text-align:right}
-  </style>
+      /* ---------- 设置 ---------- */
+    .set-btn-gear{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;
+      border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text-muted);cursor:pointer}
+    .set-btn-gear:hover{color:var(--accent);border-color:var(--accent)}
+    .set-mask{position:fixed;inset:0;background:rgba(8,11,18,.6);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px}
+    .set-modal{width:100%;max-width:440px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:14px;
+      padding:20px;font-size:13.5px;box-shadow:0 24px 70px rgba(0,0,0,.4)}
+    .set-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+    .set-head b{font-size:15px}
+    .set-x{border:none;background:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1}
+    .set-label{font-size:12px;color:var(--text-muted);margin:12px 0 8px}
+    .set-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .seg{display:inline-flex;border:1px solid var(--border);border-radius:9px;overflow:hidden}
+    .seg button{padding:7px 16px;border:none;background:none;color:var(--text);font-size:12.5px;cursor:pointer}
+    .seg button.on{background:var(--accent);color:#fff}
+    .swatches{display:flex;align-items:center;gap:9px}
+    .swatches button{width:24px;height:24px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;
+      box-shadow:0 0 0 1px var(--border)}
+    .swatches button.on{border-color:var(--text)}
+    .swatch-custom{width:24px;height:24px;border-radius:50%;overflow:hidden;box-shadow:0 0 0 1px var(--border);cursor:pointer;
+      background:conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}
+    .swatch-custom input{opacity:0;width:100%;height:100%;cursor:pointer}
+    .set-hr{height:1px;background:var(--border);margin:16px 0 4px}
+    .set-acct b{font-size:13px}
+    .set-note{font-size:11.5px;color:var(--text-muted);margin-top:3px}
+    .set-wait{font-size:12px;color:var(--text-muted);margin-top:8px;padding:8px 10px;border:1px dashed var(--border);border-radius:9px}
+    .set-link{display:inline-block;margin-top:8px;font-size:12.5px;color:var(--accent);text-decoration:none}
+    .set-btn{padding:7px 14px;border:none;border-radius:9px;background:var(--accent);color:#fff;font-size:12.5px;cursor:pointer}
+    /* 深色模式补丁：把硬编码白底的控件拉回变量体系 */
+    html.r6t5-dark .copy-btn,
+    html.r6t5-dark .edit-btn,
+    html.r6t5-dark .auth-btn,
+    html.r6t5-dark .set-btn-gear,
+    html.r6t5-dark .copy-menu button,
+    html.r6t5-dark .auth-menu button { background: var(--bg) !important; color: var(--text) !important; border-color: var(--border) !important; }
+    html.r6t5-dark .copy-menu,
+    html.r6t5-dark .auth-menu { background: var(--sidebar-bg) !important; border-color: var(--border) !important; }
+    html.r6t5-dark .copy-menu button:hover,
+    html.r6t5-dark .auth-menu button:hover { background: var(--code-bg) !important; }
+    html.r6t5-dark .search-item.active,
+    html.r6t5-dark .search-item:hover { background: rgba(255,255,255,.06) !important; }
+    html.r6t5-dark .edit-btn:hover,
+    html.r6t5-dark .copy-btn:hover { border-color: var(--accent) !important; background: var(--code-bg) !important; }
+    html.r6t5-dark .menu-btn { background: var(--bg) !important; color: var(--text) !important; border-color: var(--border) !important; }
+    html.r6t5-dark .node-link.active,
+    html.r6t5-dark .node-link:hover { background: var(--code-bg) !important; color: var(--text) !important; }
+    html.r6t5-dark .node-link.active { border-left-color: var(--accent) !important; }
+</style>
 </head>
 <body>
   <div class="layout">
@@ -318,6 +365,9 @@
             <button type="button" data-type="text">复制纯文本</button>
           </div>
         </div>
+          <button class="set-btn-gear" id="setBtn" title="设置" aria-label="设置">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 4.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/><path d="M7.3 0h1.4l.3 1.7c.4.1.8.3 1.2.5l1.4-1 1 1-1 1.4c.2.4.4.8.5 1.2L13.7 6l.3.8-.3.8-1.7.3c-.1.4-.3.8-.5 1.2l1 1.4-1 1-1.4-1c-.4.2-.8.4-1.2.5L9.3 16h-1.4l-.3-1.7c-.4-.1-.8-.3-1.2-.5l-1.4 1-1-1 1-1.4c-.2-.4-.4-.8-.5-1.2L1.5 10l-.3-.8.3-.8 1.7-.3c.1-.4.3-.8.5-1.2l-1-1.4 1-1 1.4 1c.4-.2.8-.4 1.2-.5L7.3 0Z" opacity=".45"/></svg>
+          </button>
         <button class="copy-btn" id="accountBtn" style="display:none;">登录</button>
         <a class="edit-btn" id="editBtn" target="_blank" rel="noopener">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -1100,6 +1150,118 @@
       document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
       document.addEventListener('mousedown', e => { if (menu && !e.target.closest('.ctx-menu')) close(); });
       window.addEventListener('scroll', close, true);
+    })();
+    // ---------- 设置：主题 + 账号 ----------
+    (function initSettings() {
+      const KEY = 'r6t5.prefs';
+      const PRESETS = [
+        { name: '蓝', color: '#0969da' },
+        { name: '红', color: '#d1242f' },
+        { name: '黄', color: '#bf8700' },
+        { name: '绿', color: '#1a7f37' },
+      ];
+      const DARK = { bg: '#0d1117', side: '#11151c', border: '#262d3a', text: '#e6edf3', muted: '#9aa4b2', code: '#161b22' };
+
+      function read() { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } }
+      function save(p) { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (e) {} }
+
+      function apply(p) {
+        const r = document.documentElement;
+        r.style.setProperty('--accent', p.accent || PRESETS[0].color);
+        if (p.mode === 'dark') {
+          r.style.setProperty('--bg', DARK.bg);
+          r.style.setProperty('--sidebar-bg', DARK.side);
+          r.style.setProperty('--border', DARK.border);
+          r.style.setProperty('--text', DARK.text);
+          r.style.setProperty('--text-muted', DARK.muted);
+          r.style.setProperty('--code-bg', DARK.code);
+          r.style.colorScheme = 'dark';
+          r.classList.add('r6t5-dark');
+        } else {
+          ['--bg', '--sidebar-bg', '--border', '--text', '--text-muted', '--code-bg'].forEach(k => r.style.removeProperty(k));
+          r.style.colorScheme = 'light';
+          r.classList.remove('r6t5-dark');
+        }
+      }
+      apply(read());
+
+      const gear = document.getElementById('setBtn');
+      if (!gear) return;
+
+      function accountHTML() {
+        const hubOn = ((typeof MANIFEST !== 'undefined' && MANIFEST && MANIFEST.auth) || {}).hub !== false;
+        const hubUser = (hubOn && typeof sbGetUser === 'function') ? sbGetUser() : null;
+        if (hubUser) {
+          return '<div class="set-acct"><b>' + (hubUser.email || '') + '</b>'
+            + '<div class="set-note">R6T5 开放平台账号</div>'
+            + '<a class="set-link" href="https://myacc.r6t5.dpdns.org/?app=open-platform&country=cf" target="_blank" rel="noopener">账号管理 →</a></div>';
+        }
+        const siteUser = window.__r6t5SiteUser || ((typeof session !== 'undefined' && session && session.email) ? session : null);
+        if (siteUser && siteUser.email) {
+          return '<div class="set-acct"><b>' + siteUser.email + '</b>'
+            + '<div class="set-note">本站账号（站点管理员配置）</div>'
+            + '<div class="set-wait">请等待适配开放平台的自定义账号系统</div></div>';
+        }
+        if (hubOn && typeof msLogin === 'function') {
+          return '<div class="set-acct"><div class="set-note">未登录</div>'
+            + '<button class="set-btn" id="setLogin">登录开放平台账号</button></div>';
+        }
+        return '<div class="set-acct"><div class="set-note">未登录</div>'
+          + '<div class="set-wait">请等待适配开放平台的自定义账号系统</div></div>';
+      }
+
+      function open() {
+        const p = read();
+        const mask = document.createElement('div');
+        mask.className = 'set-mask';
+        mask.innerHTML = '<div class="set-modal">'
+          + '<div class="set-head"><b>设置</b><button class="set-x">×</button></div>'
+          + '<div class="set-label">主题</div>'
+          + '<div class="set-row"><div class="seg" id="setMode">'
+          + '<button data-mode="light"' + (p.mode !== 'dark' ? ' class="on"' : '') + '>浅色</button>'
+          + '<button data-mode="dark"' + (p.mode === 'dark' ? ' class="on"' : '') + '>深色</button></div></div>'
+          + '<div class="set-label">强调色</div>'
+          + '<div class="set-row"><div class="swatches" id="setSwatch">'
+          + PRESETS.map(s => '<button data-color="' + s.color + '" title="' + s.name + '"'
+            + ' style="background:' + s.color + '"' + ((p.accent || PRESETS[0].color) === s.color ? ' class="on"' : '') + '></button>').join('')
+          + '<label class="swatch-custom" title="自定义"><input type="color" id="setColor" value="' + (p.accent || PRESETS[0].color) + '"></label>'
+          + '</div></div>'
+          + '<div class="set-hr"></div>'
+          + '<div class="set-label">账号</div>'
+          + '<div class="set-row" id="setAcctWrap">' + accountHTML() + '</div>'
+          + '</div>';
+        document.body.appendChild(mask);
+        mask.addEventListener('click', e => { if (e.target === mask) mask.remove(); });
+        mask.querySelector('.set-x').onclick = () => mask.remove();
+
+        mask.querySelectorAll('#setMode button').forEach(b => {
+          b.onclick = () => {
+            const cur = read();
+            cur.mode = b.dataset.mode;
+            save(cur); apply(cur);
+            mask.querySelectorAll('#setMode button').forEach(x => x.classList.toggle('on', x === b));
+          };
+        });
+        mask.querySelectorAll('#setSwatch button').forEach(b => {
+          b.onclick = () => {
+            const cur = read();
+            cur.accent = b.dataset.color;
+            save(cur); apply(cur);
+            mask.querySelector('#setColor').value = cur.accent;
+            mask.querySelectorAll('#setSwatch button').forEach(x => x.classList.toggle('on', x === b));
+          };
+        });
+        mask.querySelector('#setColor').oninput = e => {
+          const cur = read();
+          cur.accent = e.target.value;
+          save(cur); apply(cur);
+          mask.querySelectorAll('#setSwatch button').forEach(x => x.classList.remove('on'));
+        };
+        const loginBtn = mask.querySelector('#setLogin');
+        if (loginBtn) loginBtn.onclick = () => msLogin({ returnTo: location.href });
+      }
+
+      gear.addEventListener('click', open);
     })();
 </script>
 </body>
