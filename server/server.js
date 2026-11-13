@@ -202,7 +202,7 @@ function docTitle(p) {
 /* ---------------- 站点配置 ---------------- */
 
 function isPro() {
-  if (String(process.env.PRO).toLowerCase() === '1') return true;
+  // 唯一途径：管理后台输入有效产品密钥（写入 license.json）
   return readJson(P.license, {}).mode === 'pro';
 }
 
@@ -550,10 +550,9 @@ bootstrap();
     problems.forEach((x) => console.error('  - ' + x));
     console.error('------------------------------------------------------------');
     console.error('  处理方式（三选一）：');
-    console.error('   1) 恢复原始文件：rm -rf ' + SITE_DIR + '/index.html ' + SITE_DIR + '/LICENSE');
+    console.error('   1) 恢复原始文件：rm -f ' + SITE_DIR + '/index.html ' + SITE_DIR + '/LICENSE');
     console.error('      并删除 ' + P.site + ' 中的 attribution 字段，然后重启');
-    console.error('   2) 在管理后台输入 15 位产品密钥激活专业版后重启');
-    console.error('   3) 已获书面白标授权且无法联网时，设置环境变量 PRO=1');
+    console.error('   2) 在管理后台输入 15 位产品密钥激活专业版后重启（唯一放行方式）');
     console.error('============================================================');
     console.error('');
     process.exit(1);
