@@ -386,11 +386,89 @@
       manifest.tree.forEach(n => treeEl.appendChild(renderNode(n)));
     }
 
+    // ---------- 文档积分 ----------
+    let pointsCfgCache = null;
+    async function pointsConfig() {
+      if (pointsCfgCache) return pointsCfgCache;
+      try { pointsCfgCache = await (await fetch('/api/points/config')).json(); } catch (e) { pointsCfgCache = { enabled: false }; }
+      return pointsCfgCache;
+    }
+
+    function buildLockPanel(info) {
+      const box = document.createElement('div');
+      box.style.cssText = 'margin:28px 0 8px;padding:18px;border:1px solid #e3c26a;border-radius:10px;'
+        + 'background:#fffaf0;color:#3a2f12;font-size:14px;line-height:1.8;';
+      const head = '🔒 本文已免费读到 ' + info.ratio + '%，剩余内容需 <b>' + info.price + '</b> 积分解锁。';
+
+      if (!info.payReady) {
+        box.innerHTML = '<div style="font-weight:600;margin-bottom:6px;">' + head + '</div>'
+          + '<div style="color:#8a5a00;">请联系管理员完善积分系统'
+          + (info.admin ? '（<a href="mailto:' + esc(info.admin) + '">' + esc(info.admin) + '</a>）' : '（管理员邮箱未填写）')
+          + '。</div>';
+        return box;
+      }
+
+      box.innerHTML = '<div style="font-weight:600;margin-bottom:10px;">' + head + '</div>'
+        + '<div id="lockStep1"><div style="color:#666;font-size:13px;margin-bottom:6px;">用邮箱接收验证码后解锁（积分由管理员充值）。</div>'
+        + '<input id="lockEmail" placeholder="you@example.com" style="width:100%;max-width:320px;padding:9px;border:1px solid #d8c79a;border-radius:8px;">'
+        + '<button id="lockSend" style="margin-left:8px;padding:9px 14px;border:none;border-radius:8px;background:#c99a1e;color:#fff;cursor:pointer;">发送验证码</button>'
+        + '<div id="lockStep2" style="display:none;margin-top:10px;">'
+        + '<input id="lockCode" placeholder="6 位验证码" style="width:140px;padding:9px;border:1px solid #d8c79a;border-radius:8px;">'
+        + '<button id="lockUnlock" style="margin-left:8px;padding:9px 14px;border:none;border-radius:8px;background:#1f7a4d;color:#fff;cursor:pointer;">解锁全文（' + info.price + ' 积分）</button>'
+        + '</div><div id="lockMsg" style="font-size:13px;margin-top:8px;min-height:18px;"></div></div>';
+
+      setTimeout(() => {
+        const msg = (t, ok) => { const m = box.querySelector('#lockMsg'); m.textContent = t; m.style.color = ok ? '#1f7a4d' : '#c0392b'; };
+        const sb = async (path, body, token) => {
+          const cfg = await pointsConfig();
+          const r = await fetch(cfg.supabaseUrl.replace(/\/$/, '') + path, {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json', apikey: cfg.supabaseAnonKey },
+              token ? { Authorization: 'Bearer ' + token } : {}),
+            body: JSON.stringify(body || {})
+          });
+          let d = {};
+          try { d = await r.json(); } catch (e) {}
+          if (!r.ok) throw new Error(d.msg || d.message || d.error_description || d.error || ('HTTP ' + r.status));
+          return d;
+        };
+
+        box.querySelector('#lockSend').onclick = async () => {
+          const email = box.querySelector('#lockEmail').value.trim();
+          if (!email) return msg('请填写邮箱', false);
+          try {
+            await sb('/auth/v1/otp', { email: email, create_user: true });
+            box.querySelector('#lockStep2').style.display = 'block';
+            msg('验证码已发送，请查收邮箱', true);
+            box.dataset.email = email;
+          } catch (e) { msg('发送失败：' + e.message, false); }
+        };
+
+        box.querySelector('#lockUnlock').onclick = async () => {
+          const email = box.dataset.email;
+          const code = box.querySelector('#lockCode').value.trim();
+          if (!code) return msg('请输入验证码', false);
+          try {
+            const v = await sb('/auth/v1/verify', { type: 'email', email: email, token: code });
+            if (!v.access_token) throw new Error('验证失败');
+            localStorage.setItem('r6t5_sb_token', v.access_token);
+            const bal = await sb('/rest/v1/rpc/r6t5_unlock_doc', { p_doc: info.path, p_cost: Number(info.price) }, v.access_token);
+            msg('解锁成功，剩余积分 ' + bal + '，正在刷新…', true);
+            setTimeout(() => location.reload(), 900);
+          } catch (e) { msg('解锁失败：' + e.message, false); }
+        };
+      }, 0);
+      return box;
+    }
+
     async function loadDoc() {
       const path = currentPath();
       let res;
+      const hdrs = {};
+      const tok = localStorage.getItem('r6t5_sb_token') || '';
+      if (tok) hdrs['Authorization'] = 'Bearer ' + tok;
       try {
-        res = await fetch(path);
+        res = await fetch(path, { headers: hdrs });
         if (!res.ok) throw new Error('HTTP ' + res.status);
       } catch (e) {
         contentEl.innerHTML = '<p>文档加载失败：<code>' + esc(path) + '</code></p>';
@@ -400,6 +478,18 @@
       const md = await res.text();
       rawMarkdown = md;
       contentEl.innerHTML = marked.parse(md);
+
+      // ---------- 文档积分：内容被截断时展示解锁面板 ----------
+      if (res.headers.get('X-R6T5-Locked') === '1') {
+        const info = {
+          ratio: res.headers.get('X-R6T5-Ratio') || '0',
+          price: res.headers.get('X-R6T5-Price') || '0',
+          payReady: res.headers.get('X-R6T5-PayReady') === '1',
+          admin: decodeURIComponent(res.headers.get('X-R6T5-Admin-Mail') || ''),
+          path: path
+        };
+        contentEl.appendChild(buildLockPanel(info));
+      }
 
       const h1 = contentEl.querySelector('h1');
       const title = h1 ? h1.textContent.trim() : path;

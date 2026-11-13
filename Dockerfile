@@ -11,6 +11,7 @@ WORKDIR /app
 COPY server ./server
 COPY admin ./admin
 COPY public ./public
+COPY sql ./sql
 
 RUN mkdir -p /data && chown -R node:node /data /app
 USER node

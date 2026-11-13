@@ -36,6 +36,7 @@ const P = {
   tree: path.join(DATA_DIR, 'tree.json'),
   license: path.join(DATA_DIR, 'license.json'),
   licenses: path.join(DATA_DIR, 'licenses.json'), // 域名/仓库授权清单
+  points: path.join(DATA_DIR, 'points.json'),     // 文档积分设置
   admin: path.join(DATA_DIR, 'admin.json'),
 };
 
@@ -125,6 +126,10 @@ function bootstrap() {
   }
   if (!fs.existsSync(P.license)) writeJson(P.license, { mode: 'community', key: '', host: '', activatedAt: 0 });
   if (!fs.existsSync(P.licenses)) writeJson(P.licenses, { domains: [], repos: [] });
+  if (!fs.existsSync(P.points)) writeJson(P.points, {
+    enabled: false, supabaseUrl: '', supabaseAnonKey: '', adminEmail: '',
+    freeRatio: 30, defaultCost: 10,
+  });
   ensureAdmin();
   syncManifest();
 }
@@ -252,6 +257,62 @@ function proReasons(host) {
   if (host ? hostCovered(host) : l.domains.some((d) => d.status === 'verified')) reasons.push('域名');
   if (l.repos.length) reasons.push('仓库');
   return reasons;
+}
+
+/* ---------------- 文档积分 ---------------- */
+
+const pointsCfg = () => readJson(P.points, {
+  enabled: false, supabaseUrl: '', supabaseAnonKey: '', adminEmail: '', freeRatio: 30, defaultCost: 10,
+});
+
+function pointsReady(cfg) {
+  return !!(cfg.supabaseUrl && cfg.supabaseAnonKey);
+}
+
+// 文档价格：tree.json 里该文档的 price；未设置则按默认价
+function docPrice(rel) {
+  const cfg = pointsCfg();
+  const stack = readJson(P.tree, { tree: [] }).tree || [];
+  for (const g of stack) {
+    for (const c of (g.children || [])) {
+      if (c.path === rel) return Number(c.price != null ? c.price : cfg.defaultCost) || 0;
+    }
+  }
+  return Number(cfg.defaultCost) || 0;
+}
+
+function bearer(req) {
+  const m = String(req.headers.authorization || '').match(/^Bearer\s+(.+)$/i);
+  return m ? m[1] : '';
+}
+
+async function hasUnlock(req, cfg, rel) {
+  const token = bearer(req);
+  if (!token) return false;
+  try {
+    const url = cfg.supabaseUrl.replace(/\/$/, '') + '/rest/v1/r6t5_unlocks?select=doc_path&doc_path=eq.' + encodeURIComponent(rel);
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch(url, {
+      headers: { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + token },
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return false;
+    const rows = await r.json();
+    return Array.isArray(rows) && rows.length > 0;
+  } catch (_) { return false; }
+}
+
+// 按比例截断，尽量在换行处收尾，保证 Markdown 仍可解析
+function cutMarkdown(text, ratio) {
+  const pct = Math.max(0, Math.min(100, Number(ratio) || 0));
+  if (pct >= 100) return text;
+  const limit = Math.floor(text.length * pct / 100);
+  let cut = text.slice(0, limit);
+  const nl = cut.lastIndexOf('\n');
+  if (nl > 0) cut = cut.slice(0, nl);
+  return cut;
 }
 
 function isPro(host) {
@@ -431,6 +492,7 @@ async function api(req, res, url) {
     return send(res, 200, {
       ok: true, pro: isPro(h), host: h, license: lic,
       licenses: licStore(), reasons: proReasons(h),
+      points: pointsCfg(), pointsReady: pointsReady(pointsCfg()),
       site: readJson(P.site, {}), attribution: cfg.attribution, canonical: CANON,
       tree: readJson(P.tree, { tree: [] }).tree,
     });
@@ -505,6 +567,63 @@ async function api(req, res, url) {
     l.repos = l.repos.filter((r) => r.repo !== b.repo);
     writeJson(P.licenses, l);
     return send(res, 200, { ok: true });
+  }
+
+  if (p === '/api/points/config') {
+    const cfg = pointsCfg();
+    const on = cfg.enabled && isPro(host(req));
+    return send(res, 200, {
+      ok: true,
+      enabled: on,
+      supabaseUrl: on ? cfg.supabaseUrl : '',
+      supabaseAnonKey: on ? cfg.supabaseAnonKey : '',
+      freeRatio: on ? cfg.freeRatio : 0,
+      adminEmail: on ? cfg.adminEmail : '',
+      ready: on ? pointsReady(cfg) : false,
+    });
+  }
+
+  if (p === '/api/admin/points' && req.method === 'POST') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const b = await body(req);
+    const h = SITE_HOST || host(req);
+    if (b.enabled === true && !isPro(h)) {
+      return send(res, 403, { ok: false, error: '文档积分是专业版专属功能（密钥 / 已验证域名 / 授权仓库任一）' });
+    }
+    const cfg = pointsCfg();
+    if (typeof b.supabaseUrl === 'string') cfg.supabaseUrl = b.supabaseUrl.trim().replace(/\/$/, '');
+    if (typeof b.supabaseAnonKey === 'string') cfg.supabaseAnonKey = b.supabaseAnonKey.trim();
+    if (typeof b.adminEmail === 'string') cfg.adminEmail = b.adminEmail.trim();
+    if (b.freeRatio != null) cfg.freeRatio = Math.max(0, Math.min(100, Number(b.freeRatio) || 0));
+    if (b.defaultCost != null) cfg.defaultCost = Math.max(0, Math.floor(Number(b.defaultCost) || 0));
+    if (typeof b.enabled === 'boolean') cfg.enabled = b.enabled;
+    if (cfg.supabaseUrl && !/^https?:\/\/.+$/.test(cfg.supabaseUrl)) {
+      return send(res, 400, { ok: false, error: 'Supabase URL 必须以 http(s):// 开头' });
+    }
+    writeJson(P.points, cfg);
+    return send(res, 200, { ok: true, points: cfg, ready: pointsReady(cfg) });
+  }
+
+  if (p === '/api/admin/points/test' && req.method === 'POST') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    const cfg = pointsCfg();
+    if (!pointsReady(cfg)) return send(res, 400, { ok: false, error: '请先填写 Supabase URL 与 anon key' });
+    try {
+      const url = cfg.supabaseUrl + '/rest/v1/r6t5_accounts?select=user_id&limit=1';
+      const r = await fetch(url, { headers: { apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey } });
+      if (r.status === 404) return send(res, 400, { ok: false, error: '连接成功，但表 r6t5_accounts 不存在，请先执行建库 SQL' });
+      if (!r.ok) return send(res, 400, { ok: false, error: '连接失败：HTTP ' + r.status + '（检查 anon key / 项目 URL）' });
+      return send(res, 200, { ok: true, message: '连接成功，积分表可访问' });
+    } catch (e) {
+      return send(res, 400, { ok: false, error: '连接失败：' + e.message });
+    }
+  }
+
+  if (p === '/api/admin/points/sql') {
+    if (!authed(req)) return send(res, 401, { ok: false, error: '未登录' });
+    try {
+      return send(res, 200, { ok: true, sql: fs.readFileSync(path.join(ROOT, 'sql', 'points.sql'), 'utf8') });
+    } catch (e) { return send(res, 500, { ok: false, error: '读取 SQL 失败' }); }
   }
 
   if (p === '/api/admin/key' && req.method === 'POST') {
@@ -606,7 +725,11 @@ async function api(req, res, url) {
     const tree = b.tree.slice(0, 200).map((g) => ({
       title: String(g.title || '未命名分组').slice(0, 60),
       children: (g.children || []).slice(0, 300).filter((c) => docs.has(c.path))
-        .map((c) => ({ title: String(c.title || docTitle(c.path)).slice(0, 80), path: c.path })),
+        .map((c) => {
+          const o = { title: String(c.title || docTitle(c.path)).slice(0, 80), path: c.path };
+          if (c.price != null && Number(c.price) > 0) o.price = Math.floor(Number(c.price));
+          return o;
+        }),
     }));
     writeJson(P.tree, { tree: tree });
     syncManifest();
@@ -614,6 +737,39 @@ async function api(req, res, url) {
   }
 
   return send(res, 404, { ok: false, error: 'unknown api' });
+}
+
+/* ---------------- 受积分保护的文档 ---------------- */
+
+async function serveDoc(req, res, full, rel) {
+  const cfg = pointsCfg();
+  const pro = isPro(host(req));
+  const price = docPrice(rel);
+  const raw = fs.readFileSync(full, 'utf8');
+
+  const gated = pro && cfg.enabled && price > 0;
+  if (!gated) {
+    res.writeHead(200, { 'Content-Type': MIME['.md'], 'Cache-Control': 'no-cache' });
+    return res.end(raw);
+  }
+
+  if (await hasUnlock(req, cfg, rel)) {
+    res.writeHead(200, { 'Content-Type': MIME['.md'], 'Cache-Control': 'no-cache', 'X-R6T5-Unlocked': '1' });
+    return res.end(raw);
+  }
+
+  const cut = cutMarkdown(raw, cfg.freeRatio);
+  res.writeHead(200, {
+    'Content-Type': MIME['.md'],
+    'Cache-Control': 'no-cache',
+    'X-R6T5-Locked': '1',
+    'X-R6T5-Price': String(price),
+    'X-R6T5-Ratio': String(cfg.freeRatio),
+    'X-R6T5-PayReady': pointsReady(cfg) ? '1' : '0',
+    'X-R6T5-Admin-Mail': encodeURIComponent(cfg.adminEmail || ''),
+    'Access-Control-Expose-Headers': 'X-R6T5-Locked,X-R6T5-Price,X-R6T5-Ratio,X-R6T5-PayReady,X-R6T5-Admin-Mail,X-R6T5-Unlocked',
+  });
+  return res.end(cut + '\n\n<!--R6T5-LOCKED-->\n');
 }
 
 /* ---------------- 路由 ---------------- */
@@ -656,6 +812,10 @@ const server = http.createServer(async (req, res) => {
 
   // 静态文件：只允许从 SITE_DIR 读取，防止穿越
   const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+  if (rel.startsWith('docs/') && rel.endsWith('.md')) {
+    const f = path.resolve(SITE_DIR, rel);
+    if (f.startsWith(path.resolve(SITE_DIR)) && fs.existsSync(f)) return await serveDoc(req, res, f, rel);
+  }
   const full = path.resolve(SITE_DIR, rel);
   if (!full.startsWith(path.resolve(SITE_DIR))) return send(res, 403, { ok: false, error: 'forbidden' });
   if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) return send(res, 404, { ok: false, error: 'not found' });

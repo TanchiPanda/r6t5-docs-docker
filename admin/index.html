@@ -99,6 +99,31 @@
       </div>
     </div>
 
+    <!-- 文档积分 -->
+    <div class="card">
+      <h2>文档积分 <span class="badge comm" id="pointsBadge">专业版专属</span></h2>
+      <div class="note" id="pointsHint"></div>
+
+      <label><input type="checkbox" id="ptEnabled" style="width:auto;margin-right:6px;">启用文档积分（按 manifest 中的文档计价）</label>
+      <div class="grid2">
+        <div><label>Supabase URL</label><input type="text" id="ptUrl" placeholder="https://xxxx.supabase.co"></div>
+        <div><label>管理员邮箱（锁定提示里展示）</label><input type="text" id="ptMail" placeholder="admin@example.com"></div>
+      </div>
+      <label>Supabase anon key</label>
+      <input type="text" id="ptKey" placeholder="eyJhbGciOi...">
+      <div class="grid2">
+        <div><label>可读比例（%，0–100）</label><input type="text" id="ptRatio" placeholder="30"></div>
+        <div><label>默认每篇积分（未单独定价时）</label><input type="text" id="ptCost" placeholder="10"></div>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn primary" id="ptSave">保存</button>
+        <button class="btn ghost" id="ptTest">测试连接</button>
+        <button class="btn ghost" id="ptSql">查看建库 SQL</button>
+      </div>
+      <div class="msg" id="ptMsg"></div>
+      <textarea id="ptSqlBox" class="hide" spellcheck="false" style="min-height:260px;margin-top:10px;font-size:12px;"></textarea>
+    </div>
+
     <!-- 站点设置 -->
     <div class="card">
       <h2>站点设置</h2>
@@ -202,6 +227,28 @@ async function loadState() {
   }
   $('licInfo').innerHTML = info;
   renderLic(d.licenses || { domains: [], repos: [] });
+  const pt = d.points || {};
+  $('ptEnabled').checked = !!pt.enabled;
+  $('ptUrl').value = pt.supabaseUrl || '';
+  $('ptKey').value = pt.supabaseAnonKey || '';
+  $('ptMail').value = pt.adminEmail || '';
+  $('ptRatio').value = pt.freeRatio != null ? pt.freeRatio : 30;
+  $('ptCost').value = pt.defaultCost != null ? pt.defaultCost : 10;
+  const pb = $('pointsBadge');
+  if (d.pro) {
+    pb.textContent = d.pointsReady ? '专业版 · 已配置' : '专业版 · 未配置 Supabase';
+    pb.className = 'badge pro';
+  } else {
+    pb.textContent = '专业版专属（当前不可用）';
+    pb.className = 'badge comm';
+  }
+  ['ptEnabled','ptUrl','ptKey','ptMail','ptRatio','ptCost','ptSave','ptTest'].forEach((id) => { $(id).disabled = !d.pro; });
+  $('pointsHint').textContent = d.pro
+    ? (d.pointsReady
+        ? '已接入 Supabase。把文档在「文档树」里填上积分价格即可开启付费阅读；留空按默认价，价格为 0 则免费。'
+        : '还没配置 Supabase。此时开启积分会让文档按比例锁住，并提示读者「请联系管理员完善积分系统」。请填 URL + anon key，并按「查看建库 SQL」在 Supabase 建表。')
+    : '文档积分是专业版专属。当前站点为社区版，功能已禁用，读者端不会出现任何弹窗或锁定。';
+
   const site = d.site || {};
   $('siteTitle').value = site.title || 'r6t5 文档';
   $('siteRepo').value = site.repo || '';
@@ -303,6 +350,7 @@ function renderTree() {
     const kids = (g.children || []).map((c, ci) => {
       return '<div class="item">'
         + '<input type="text" class="grow" value="' + esc(c.title) + '" data-g="' + gi + '" data-c="' + ci + '" data-role="title">'
+        + '<input type="text" style="width:64px;" value="' + esc(c.price != null ? c.price : '') + '" data-g="' + gi + '" data-c="' + ci + '" data-role="price" title="本文积分价格，空=默认价">'
         + '<span class="path">' + esc(c.path) + '</span>'
         + '<button class="btn mini" data-act="up" data-g="' + gi + '" data-c="' + ci + '">↑</button>'
         + '<button class="btn mini" data-act="down" data-g="' + gi + '" data-c="' + ci + '">↓</button>'
@@ -326,6 +374,11 @@ function collectTree() {
   const box = $('treeBox');
   box.querySelectorAll('[data-role="gtitle"]').forEach((inp) => { S.tree[+inp.dataset.g].title = inp.value; });
   box.querySelectorAll('[data-role="title"]').forEach((inp) => { S.tree[+inp.dataset.g].children[+inp.dataset.c].title = inp.value; });
+  box.querySelectorAll('[data-role="price"]').forEach((inp) => {
+    const c = S.tree[+inp.dataset.g].children[+inp.dataset.c];
+    const v = parseInt(inp.value, 10);
+    if (!isNaN(v) && v > 0) c.price = v; else delete c.price;
+  });
   return S.tree;
 }
 
@@ -452,6 +505,40 @@ $('keyBtn').onclick = async () => {
     await loadState();
   } catch (e) { setMsg('keyMsg', e.message, false); }
   $('keyBtn').disabled = false; $('keyBtn').textContent = '激活';
+};
+
+$('ptSave').onclick = async () => {
+  try {
+    const d = await api('/api/admin/points', {
+      method: 'POST',
+      body: JSON.stringify({
+        enabled: $('ptEnabled').checked,
+        supabaseUrl: $('ptUrl').value,
+        supabaseAnonKey: $('ptKey').value,
+        adminEmail: $('ptMail').value,
+        freeRatio: $('ptRatio').value,
+        defaultCost: $('ptCost').value
+      })
+    });
+    setMsg('ptMsg', d.ready ? '已保存，积分系统就绪' : '已保存（未配置 Supabase：文档将按比例锁定并提示联系管理员）', true);
+    await loadState();
+  } catch (e) { setMsg('ptMsg', e.message, false); }
+};
+
+$('ptTest').onclick = async () => {
+  try {
+    const d = await api('/api/admin/points/test', { method: 'POST', body: '{}' });
+    setMsg('ptMsg', d.message || '连接正常', true);
+  } catch (e) { setMsg('ptMsg', e.message, false); }
+};
+
+$('ptSql').onclick = async () => {
+  try {
+    const d = await api('/api/admin/points/sql');
+    const box = $('ptSqlBox');
+    box.value = d.sql;
+    box.classList.toggle('hide');
+  } catch (e) { setMsg('ptMsg', e.message, false); }
 };
 
 $('loginBtn').onclick = async () => {
