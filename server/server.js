@@ -120,6 +120,7 @@ function bootstrap() {
       title: 'r6t5 文档',
       repo: '用户名/仓库名',
       defaultPath: 'docs/index.md',
+      aiEndpoint: '',
     });
   }
   if (!fs.existsSync(P.tree)) {
@@ -378,6 +379,7 @@ function siteConfig(host) {
     title: s.title || 'r6t5 文档',
     repo: s.repo || '用户名/仓库名',
     defaultPath: s.defaultPath || 'docs/index.md',
+    aiEndpoint: s.aiEndpoint || '',
     attribution: att,
     pro: isPro(host),
   };

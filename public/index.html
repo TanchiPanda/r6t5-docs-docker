@@ -265,6 +265,25 @@
       .menu-btn { display: inline-flex; }
       .content { padding: 18px; }
     }
+    /* ---------- 站内右键菜单 ---------- */
+    .ctx-menu{position:fixed;z-index:9998;min-width:212px;padding:6px;border-radius:12px;background:#121828;
+      border:1px solid #2a3350;box-shadow:0 18px 48px rgba(0,0,0,.5);backdrop-filter:blur(10px)}
+    .ctx-item{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;padding:8px 10px;
+      border:none;border-radius:8px;background:none;color:#e9ecf8;font-size:13.5px;text-align:left;cursor:pointer}
+    .ctx-item:hover{background:rgba(110,168,254,.12)}
+    .ctx-label{font-weight:500}
+    .ctx-hint{font-size:11.5px;color:#8d99bb}
+    .ctx-sep{height:1px;background:#2a3350;margin:5px 4px}
+    .ctx-mask{position:fixed;inset:0;background:rgba(8,11,18,.7);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px}
+    .ctx-modal{width:100%;max-width:520px;background:#141a29;border:1px solid #2a3350;border-radius:14px;
+      padding:20px;color:#e9ecf8;font-size:13.5px;box-shadow:0 24px 70px rgba(0,0,0,.55)}
+    .ctx-x{border:none;background:none;color:#8d99bb;font-size:20px;cursor:pointer;line-height:1}
+    .ctx-send{padding:9px 16px;border:none;border-radius:9px;background:linear-gradient(135deg,#4f8cff,#7b6cf6);color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+    .ctx-answer{max-height:46vh;overflow:auto;line-height:1.7;font-size:13.5px}
+    .prop{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px dashed #2a3350;font-size:13.5px}
+    .prop:last-child{border-bottom:none}
+    .prop span{color:#8d99bb}
+    .prop b{font-weight:600;word-break:break-all;text-align:right}
   </style>
 </head>
 <body>
@@ -803,6 +822,8 @@
       }
       const md = await res.text();
       rawMarkdown = md;
+      window.__r6t5DocRaw = md;
+      window.__r6t5Path = path;
       contentEl.innerHTML = marked.parse(md);
 
       // ---------- 文档积分：内容被截断时展示解锁面板 ----------
@@ -915,5 +936,171 @@
     });
   </script>
   <script src="license-gate.js"></script>
+  <script>
+    // ---------- 站内右键菜单 ----------
+    (function initContextMenu() {
+      const R6c = (typeof R6 !== 'undefined' && R6) || {};
+      const AI_CFG = Object.assign({ endpoint: R6c.aiEndpoint || '' }, (typeof MANIFEST !== 'undefined' && MANIFEST && MANIFEST.ai) || {});
+      const REPO_CFG = ((typeof REPO !== 'undefined' && REPO) || (typeof MANIFEST !== 'undefined' && MANIFEST && MANIFEST.repo) || '');
+      const repoUsable = REPO_CFG && !/用户名|example/i.test(REPO_CFG);
+
+      let menu = null;
+      let nativeNext = false;
+
+      function curPath() {
+        return window.__r6t5Path || (new URLSearchParams(location.search).get('path') || (typeof DEFAULT_PATH !== 'undefined' ? DEFAULT_PATH : ''));
+      }
+      function curText() {
+        return window.__r6t5DocRaw || '';
+      }
+
+      function toast(msg) {
+        const t = document.createElement('div');
+        t.textContent = msg;
+        t.style.cssText = 'position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:#1b2132;color:#e9ecf8;'
+          + 'border:1px solid #2a3350;border-radius:9px;padding:8px 14px;font-size:13px;z-index:9999;box-shadow:0 10px 30px rgba(0,0,0,.35)';
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 2200);
+      }
+
+      function item(label, hint, handler, disabled) {
+        const b = document.createElement('button');
+        b.className = 'ctx-item';
+        b.innerHTML = '<span class="ctx-label">' + label + '</span>' + (hint ? '<span class="ctx-hint">' + hint + '</span>' : '');
+        if (disabled) { b.disabled = true; b.style.opacity = '.45'; }
+        else b.onclick = () => { close(); handler(); };
+        return b;
+      }
+
+      function close() { if (menu) { menu.remove(); menu = null; } }
+
+      function open(x, y, sel) {
+        close();
+        menu = document.createElement('div');
+        menu.className = 'ctx-menu';
+        menu.appendChild(item('AI 对话', 'Workers AI', () => openAI(sel), !AI_CFG.endpoint));
+        menu.appendChild(item('复制', sel ? '选中内容' : '全文', () => copy(sel)));
+        menu.appendChild(item('纠错', '提到 GitHub Issue', () => reportIssue(sel)));
+        menu.appendChild(item('属性', '大小 / 提交 / 字数', () => showProps()));
+        const sep = document.createElement('div'); sep.className = 'ctx-sep';
+        menu.appendChild(sep);
+        menu.appendChild(item('显示更多选项', '浏览器菜单', () => {
+          nativeNext = true;
+          toast('已切换为浏览器菜单，请再次右键');
+        }));
+        document.body.appendChild(menu);
+        const w = menu.offsetWidth, h = menu.offsetHeight;
+        menu.style.left = Math.min(x, window.innerWidth - w - 8) + 'px';
+        menu.style.top = Math.min(y, window.innerHeight - h - 8) + 'px';
+      }
+
+      function copy(sel) {
+        const text = sel || curText();
+        if (!text) { toast('没有可复制的内容'); return; }
+        navigator.clipboard.writeText(text).then(() => toast('已复制'));
+      }
+
+      function reportIssue(sel) {
+        if (!repoUsable) { toast('未配置仓库，请在配置里填 owner/repo'); return; }
+        const path = curPath();
+        const title = '[Bug] 内容纠错：' + path;
+        const base = 'https://github.com/' + REPO_CFG + '/issues/new?template=bug_report.yml&title=' + encodeURIComponent(title);
+        window.open(base, '_blank');
+      }
+
+      async function showProps() {
+        const path = curPath();
+        const raw = curText();
+        const chars = raw.replace(/\s+/g, '').length;
+        const bytes = new Blob([raw]).size;
+        const box = modal(
+          '<b style="font-size:15px">文档属性</b>'
+          + '<div class="prop"><span>路径</span><b>' + esc(path) + '</b></div>'
+          + '<div class="prop"><span>字数</span><b>' + chars + '</b></div>'
+          + '<div class="prop"><span>大小</span><b>' + fmtBytes(bytes) + '</b></div>'
+          + '<div class="prop"><span>上次提交</span><b id="propCommit">读取中…</b></div>'
+        );
+        if (!repoUsable || !path) { const n = box.querySelector('#propCommit'); if (n) n.textContent = '未配置仓库'; return; }
+        try {
+          const r = await fetch('https://api.github.com/repos/' + REPO_CFG + '/commits?path=' + encodeURIComponent(path) + '&per_page=1');
+          if (r.ok) {
+            const arr = await r.json();
+            const c = arr && arr[0];
+            const n = box.querySelector('#propCommit');
+            if (n) n.textContent = c ? (c.commit.author.date.slice(0, 10) + ' · ' + (c.commit.message || '').split('\n')[0].slice(0, 34)) : '无记录';
+          } else {
+            const n = box.querySelector('#propCommit'); if (n) n.textContent = 'GitHub API 限流，稍后再试';
+          }
+        } catch (e) { const n = box.querySelector('#propCommit'); if (n) n.textContent = '读取失败'; }
+      }
+
+      function fmtBytes(n) {
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+        return (n / 1024 / 1024).toFixed(2) + ' MB';
+      }
+
+      function modal(innerHTML) {
+        const mask = document.createElement('div');
+        mask.className = 'ctx-mask';
+        mask.innerHTML = '<div class="ctx-modal">' + innerHTML + '</div>';
+        mask.addEventListener('click', e => { if (e.target === mask) mask.remove(); });
+        document.body.appendChild(mask);
+        return mask.querySelector('.ctx-modal');
+      }
+
+      function openAI(sel) {
+        if (!AI_CFG.endpoint) { toast('管理员还没配置 AI 接口'); return; }
+        const path = curPath();
+        const raw = curText();
+        const box = modal(
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+          + '<b style="font-size:15px">AI 对话 · 本文</b>'
+          + '<button class="ctx-x">×</button></div>'
+          + '<div style="font-size:12.5px;color:#8d99bb;margin-bottom:8px">基于《' + esc(path) + '》，由 Workers AI 回答</div>'
+          + '<div class="ctx-answer" id="aiAnswer">' + (sel ? '<div style="color:#8d99bb;font-size:13px">已带入选中内容，直接提问即可。</div>' : '<div style="color:#8d99bb;font-size:13px">可以问这篇文档讲了什么、某段怎么理解。</div>') + '</div>'
+          + '<div style="display:flex;gap:8px;margin-top:12px">'
+          + '<input id="aiInput" placeholder="' + (sel ? '针对选中内容提问…' : '针对本文提问…') + '" style="flex:1;padding:9px 12px;border-radius:9px;border:1px solid #2a3350;background:#0d1220;color:#e9ecf8;font-size:13px">'
+          + '<button class="ctx-send" id="aiSend">发送</button></div>'
+        );
+        box.querySelector('.ctx-x').onclick = () => box.parentNode.remove();
+        const input = box.querySelector('#aiInput');
+        const ans = box.querySelector('#aiAnswer');
+        const send = box.querySelector('#aiSend');
+        const ask = async () => {
+          const q = input.value.trim();
+          if (!q) return;
+          ans.innerHTML = '<div style="color:#8d99bb">思考中…</div>';
+          try {
+            const r = await fetch(AI_CFG.endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ question: q, doc: path, context: (sel || raw).slice(0, 1200), locale: 'zh' })
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+            ans.innerHTML = '<div style="white-space:pre-wrap">' + esc(d.text || d.response || d.answer || '（无回答）') + '</div>';
+          } catch (e) {
+            ans.innerHTML = '<div style="color:#ff9b9b">AI 服务不可用：' + esc(e.message) + '</div>';
+          }
+        };
+        send.onclick = ask;
+        input.onkeydown = e => { if (e.key === 'Enter') ask(); };
+        input.focus();
+      }
+
+      document.addEventListener('contextmenu', e => {
+        if (nativeNext) { nativeNext = false; return; }
+        if (e.target.closest('input, textarea, [contenteditable="true"]')) return;
+        e.preventDefault();
+        const sel = String(window.getSelection() || '').trim();
+        open(e.clientX, e.clientY, sel);
+      });
+
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+      document.addEventListener('mousedown', e => { if (menu && !e.target.closest('.ctx-menu')) close(); });
+      window.addEventListener('scroll', close, true);
+    })();
+</script>
 </body>
 </html>

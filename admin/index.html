@@ -177,6 +177,7 @@
       <div class="grid2">
         <div><label>站点标题</label><input type="text" id="siteTitle"></div>
         <div><label>GitHub 仓库（owner/repo）</label><input type="text" id="siteRepo"></div>
+        <div><label>AI 接口地址（Workers AI 代理，可留空）</label><input type="text" id="siteAi" placeholder="https://ai.example.com/chat"></div>
       </div>
       <label>默认文档路径</label>
       <input type="text" id="siteDefault">
@@ -305,6 +306,7 @@ async function loadState() {
     : '未配置 SUPABASE_SERVICE_KEY：只能看提示，用户数据请到 Supabase 控制台管理。';
   const site = d.site || {};
   $('siteTitle').value = site.title || 'r6t5 文档';
+  if ($('siteAi')) $('siteAi').value = site.aiEndpoint || '';
   $('siteRepo').value = site.repo || '';
   $('siteDefault').value = site.defaultPath || 'docs/index.md';
   $('attrBase').value = d.attribution.base;
@@ -536,6 +538,7 @@ $('siteBtn').onclick = async () => {
       body: JSON.stringify({
         title: $('siteTitle').value,
         repo: $('siteRepo').value,
+        aiEndpoint: $('siteAi') ? $('siteAi').value : '',
         defaultPath: $('siteDefault').value,
         attribution: {
           base: $('attrBase').value, name: $('attrName').value, templateUrl: $('attrUrl').value,
