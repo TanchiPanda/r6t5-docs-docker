@@ -9,6 +9,20 @@
 
 自带管理后台：`/admin`，可图形化管理文档树、编辑全部 Markdown 文字与超链接、复制预览链接、输入产品密钥。
 
+
+## 用现成镜像（GitHub Actions 已自动构建）
+
+```bash
+docker pull ghcr.io/tanchipanda/r6t5-docs-docker:latest
+docker run -d --name r6t5-docs -p 8080:8080 -v $(pwd)/data:/data \
+  -e LICENSE_API=https://lic.r6t5.dpdns.org \
+  ghcr.io/tanchipanda/r6t5-docs-docker:latest
+docker logs r6t5-docs | head -20    # 取初始管理员密码
+```
+
+> 分发前把 GitHub 上该 Package 的可见性改为 Public（Package settings → Change visibility），否则别人拉不到。
+> 每次推送到 main 或打 `v*` tag 都会重新构建并推 `latest` / tag / sha 三个标签。
+
 ## 快速开始
 
 ```bash
