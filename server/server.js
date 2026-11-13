@@ -288,6 +288,60 @@ async function activateKey(key) {
   }
 }
 
+/* ---------------- 版权/署名完整性校验 ---------------- */
+
+const PROTECTED = [
+  { rel: 'site/index.html', seed: 'public/index.html', label: '站点模板（含署名守卫）' },
+  { rel: 'site/LICENSE', seed: 'public/LICENSE', label: '授权条款 LICENSE' },
+];
+
+const hashCache = new Map();
+function sha256File(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function fileStatus(rel, seedRel) {
+  const full = path.join(DATA_DIR, rel);
+  const seed = path.join(ROOT, seedRel);
+  if (!fs.existsSync(full)) return { rel: rel, ok: false, reason: '文件缺失' };
+  const st = fs.statSync(full);
+  const key = rel;
+  const c = hashCache.get(key);
+  if (c && c.mtime === st.mtimeMs && c.size === st.size) return c.val;
+  let val;
+  try {
+    const a = sha256File(full);
+    const b = sha256File(seed);
+    val = a === b ? { rel: rel, ok: true } : { rel: rel, ok: false, reason: '内容被修改' };
+  } catch (e) {
+    val = { rel: rel, ok: false, reason: '无法读取' };
+  }
+  hashCache.set(key, { mtime: st.mtimeMs, size: st.size, val: val });
+  return val;
+}
+
+// 署名配置是否被改（只比对“存在且不一致”的字段）
+function attributionTampered() {
+  const s = readJson(P.site, {});
+  const att = s.attribution;
+  if (!att || typeof att !== 'object') return null;
+  for (const k of ['name', 'base', 'proNote', 'canonical', 'templateUrl']) {
+    if (typeof att[k] === 'string' && att[k] !== CANON[k]) return k + '：' + att[k];
+  }
+  return null;
+}
+
+function integrityProblems() {
+  const out = [];
+  for (const f of PROTECTED) {
+    const st = fileStatus(f.rel, f.seed);
+    if (!st.ok) out.push(f.label + '（' + f.rel + '）' + st.reason);
+  }
+  const attDiff = attributionTampered();
+  if (attDiff) out.push('页脚署名被改写（' + attDiff + '）');
+  return out;
+}
+
 /* ---------------- 路径安全 ---------------- */
 
 function safeDocPath(p) {
@@ -455,6 +509,18 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/' || url.pathname === '/index.html') {
     try {
+      if (!isPro()) {
+        const problems = integrityProblems();
+        if (problems.length) {
+          res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+          return res.end('<!doctype html><meta charset="utf-8"><title>服务已停止</title>'
+            + '<div style="font:16px/1.8 -apple-system,sans-serif;max-width:560px;margin:12vh auto;color:#333">'
+            + '<h1 style="color:#c0392b">服务已停止</h1>'
+            + '<p>检测到版权/署名被修改，但本站未激活专业版，已停止对外服务。</p>'
+            + '<p style="color:#666;font-size:13px">' + problems.map((x) => '· ' + x).join('<br>') + '</p>'
+            + '</div>');
+        }
+      }
       res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
       return res.end(renderIndex());
     } catch (e) {
@@ -471,6 +537,32 @@ const server = http.createServer(async (req, res) => {
 });
 
 bootstrap();
+
+(function startupIntegrityGate() {
+  const pro = isPro();
+  let problems = [];
+  try { problems = integrityProblems(); } catch (e) { problems = ['校验过程出错：' + e.message]; }
+  if (problems.length && !pro) {
+    console.error('');
+    console.error('============================================================');
+    console.error('  拒绝启动：检测到版权/署名被修改，但当前未激活专业版');
+    console.error('------------------------------------------------------------');
+    problems.forEach((x) => console.error('  - ' + x));
+    console.error('------------------------------------------------------------');
+    console.error('  处理方式（三选一）：');
+    console.error('   1) 恢复原始文件：rm -rf ' + SITE_DIR + '/index.html ' + SITE_DIR + '/LICENSE');
+    console.error('      并删除 ' + P.site + ' 中的 attribution 字段，然后重启');
+    console.error('   2) 在管理后台输入 15 位产品密钥激活专业版后重启');
+    console.error('   3) 已获书面白标授权且无法联网时，设置环境变量 PRO=1');
+    console.error('============================================================');
+    console.error('');
+    process.exit(1);
+  }
+  if (problems.length && pro) {
+    console.warn('[warn] 专业版已激活，检测到以下署名变更（按授权允许）：' + problems.join('；'));
+  }
+})();
+
 server.listen(PORT, () => {
   const lic = isPro() ? '专业版（已激活）' : '社区版（未激活，署名锁定）';
   console.log('[r6t5-docs] 服务已启动 http://0.0.0.0:' + PORT + ' · ' + lic);
