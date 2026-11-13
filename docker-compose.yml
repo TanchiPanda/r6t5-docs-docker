@@ -1,0 +1,19 @@
+services:
+  docs:
+    build: .
+    image: r6t5-docs:1.1
+    container_name: r6t5-docs
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      # 授权服务地址（Cloudflare Worker）
+      LICENSE_API: "https://lic.r6t5.dpdns.org"
+      # 当前站点域名；留空则取请求的 Host。用于密钥绑定校验
+      SITE_HOST: ""
+      # 可选：固定管理员密码（不设则首次启动自动生成并打印）
+      # ADMIN_PASSWORD: ""
+      # 可选：强制专业版（仅限已获书面授权、无法联网校验的场景）
+      # PRO: "0"

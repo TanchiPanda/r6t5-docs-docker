@@ -1,0 +1,18 @@
+{
+  "tree": [
+    {
+      "title": "入门指南",
+      "children": [
+        { "title": "首页", "path": "docs/index.md" },
+        { "title": "快速开始", "path": "docs/guide/getting-started.md" },
+        { "title": "目录结构", "path": "docs/guide/structure.md" }
+      ]
+    },
+    {
+      "title": "参考",
+      "children": [
+        { "title": "配置说明", "path": "docs/reference/config.md" }
+      ]
+    }
+  ]
+}

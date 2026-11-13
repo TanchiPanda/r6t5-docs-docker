@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<!-- R6T5-DOCS-COMMUNITY-TEMPLATE-V1 | 本模板受《r6t5-docs 社区版授权条款》约束，署名与下方检测标记不得删除 -->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="r6t5-docs-template" content="community-v1">
+  <meta name="r6t5-docs-attribution" content="required">
+  <title>r6t5 文档</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --sidebar-bg: #f7f8fa;
+      --border: #e5e7eb;
+      --text: #1f2328;
+      --text-muted: #656d76;
+      --accent: #0969da;
+      --code-bg: #f6f8fa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.7;
+    }
+    .layout { display: flex; min-height: 100vh; }
+
+    /* ---------- 侧边栏 ---------- */
+    .sidebar {
+      width: 280px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      padding: 16px 0;
+      flex-shrink: 0;
+    }
+    .sidebar .brand {
+      font-weight: 700;
+      font-size: 16px;
+      padding: 0 20px 12px;
+    }
+    .sidebar ul { list-style: none; margin: 0; padding: 0; }
+    details.group { margin: 2px 0; }
+    details.group > summary {
+      cursor: pointer;
+      padding: 8px 20px;
+      font-weight: 600;
+      font-size: 14px;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    details.group > summary::before {
+      content: "▸";
+      color: var(--text-muted);
+      transition: transform .15s;
+      font-size: 12px;
+    }
+    details.group[open] > summary::before { transform: rotate(90deg); }
+    details.group > summary:hover { background: #eceef1; }
+    .node-link {
+      display: block;
+      padding: 7px 20px 7px 36px;
+      font-size: 14px;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .node-link:hover { background: #eceef1; }
+    .node-link.active {
+      color: var(--accent);
+      background: #ddf4ff;
+      font-weight: 600;
+    }
+
+    /* ---------- 主区域 ---------- */
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 28px;
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar .doc-title { font-size: 15px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .edit-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 13px;
+      background: #fff;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .edit-btn:hover { background: var(--code-bg); border-color: #d0d7de; }
+
+    /* ---------- 复制全文下拉 ---------- */
+    .copy-group { position: relative; flex-shrink: 0; }
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      background: #fff;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .copy-btn:hover { background: var(--code-bg); }
+    .copy-btn .caret { font-size: 10px; color: var(--text-muted); }
+    .copy-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      min-width: 150px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      padding: 6px;
+      z-index: 30;
+    }
+    .copy-menu[hidden] { display: none; }
+    .copy-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 12px;
+      border: none;
+      background: none;
+      font-size: 13px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--text);
+    }
+    .copy-menu button:hover { background: var(--code-bg); }
+    .copy-menu .menu-desc { color: var(--text-muted); font-size: 12px; }
+    .content {
+      padding: 28px;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* ---------- Markdown 渲染样式 ---------- */
+    .content h1, .content h2, .content h3, .content h4 { line-height: 1.3; margin-top: 1.6em; }
+    .content h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+    .content h2 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+    .content h3 { font-size: 1.2em; }
+    .content code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 5px;
+      font-size: 85%;
+    }
+    .content pre {
+      background: var(--code-bg);
+      padding: 14px 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+    .content pre code { background: none; padding: 0; }
+    .content blockquote {
+      margin: 1em 0;
+      padding: 2px 16px;
+      border-left: 4px solid var(--border);
+      color: var(--text-muted);
+      background: var(--code-bg);
+      border-radius: 0 8px 8px 0;
+    }
+    .content table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+    .content th, .content td { border: 1px solid var(--border); padding: 8px 12px; }
+    .content th { background: var(--code-bg); }
+    .content a { color: var(--accent); }
+    .content img { max-width: 100%; }
+
+    /* ---------- 页脚署名 ---------- */
+    .site-footer {
+      padding: 16px 28px 24px;
+      font-size: 12px;
+      color: var(--text-muted);
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .site-footer a { color: var(--accent); text-decoration: none; }
+    .site-footer a:hover { text-decoration: underline; }
+    .attribution-warning {
+      margin: 0 auto 12px;
+      max-width: 900px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: #8a4600;
+      background: #fff4e5;
+      border: 1px solid #ffd8a8;
+      border-radius: 8px;
+    }
+
+    /* ---------- 移动端 ---------- */
+    .menu-btn {
+      display: none;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    @media (max-width: 860px) {
+      .sidebar {
+        position: fixed;
+        left: 0; top: 0; bottom: 0;
+        z-index: 20;
+        transform: translateX(-100%);
+        transition: transform .2s;
+        box-shadow: 2px 0 12px rgba(0,0,0,.15);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .menu-btn { display: inline-flex; }
+      .content { padding: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">r6t5 文档</div>
+      <nav id="tree"></nav>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="menu-btn" id="menuBtn" aria-label="目录">☰</button>
+        <span class="doc-title" id="docTitle">加载中…</span>
+        <div class="copy-group">
+          <button class="copy-btn" id="copyBtn" aria-haspopup="true" aria-expanded="false">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.75 16h-8A1.75 1.75 0 0 1 0 14.25ZM6 1.75C6 .784 6.784 0 7.75 0h6.5C15.216 0 16 .784 16 1.75v6.5c0 .966-.784 1.75-1.75 1.75h-6.5A1.75 1.75 0 0 1 6 8.25Zm1.75-.25a.25.25 0 0 0-.25.25v6.5c0 .138.112.25.25.25h6.5a.25.25 0 0 0 .25-.25v-6.5a.25.25 0 0 0-.25-.25Z"/>
+            </svg>
+            <span id="copyBtnText">复制全文</span>
+            <svg class="caret" width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+              <path d="M1.5 3.5 5 7l3.5-3.5Z"/>
+            </svg>
+          </button>
+          <div class="copy-menu" id="copyMenu" hidden>
+            <button type="button" data-type="markdown">复制 Markdown</button>
+            <button type="button" data-type="xml">复制 XML<span class="menu-desc">（渲染后标签）</span></button>
+            <button type="button" data-type="text">复制纯文本</button>
+          </div>
+        </div>
+        <a class="edit-btn" id="editBtn" target="_blank" rel="noopener">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61a1.75 1.75 0 0 1-.765.444l-4.118 1.228a.75.75 0 0 1-.92-.92l1.228-4.118a1.75 1.75 0 0 1 .444-.765l8.61-8.61Z"/>
+          </svg>
+          在 GitHub 上编辑
+        </a>
+      </header>
+      <article class="content" id="content"></article>
+      <footer class="site-footer" id="siteFooter">本站由<a id="footerLink" href="https://github.com/TanchiPanda/r6t5-docs-community" target="_blank" rel="noopener">r6t5-docs</a>提供支持<span id="footerProNote">，使用专业版、订制版可去除本标志</span></footer>
+    </div>
+  </div>
+
+  <script>
+    // ---------- 运行期配置（由服务端注入，管理后台可改） ----------
+    // 社区版：署名由服务端强制为标准文案；专业版：管理后台可改署名
+    const R6 = window.R6T5 || {};
+    const REPO = R6.repo || '用户名/仓库名';
+    const DEFAULT_PATH = R6.defaultPath || 'docs/index.md';
+    const FOOTER = {
+      showProNote: !(R6.pro === true)   // 未激活专业版则显示推广提示
+    };
+    const ATTRIBUTION = Object.assign({
+      name: 'r6t5-docs',
+      base: '本站由r6t5-docs提供支持',
+      proNote: '，使用专业版、订制版可去除本标志',
+      canonical: '本站由r6t5-docs提供支持，使用专业版、订制版可去除本标志',
+      templateUrl: 'https://github.com/TanchiPanda/r6t5-docs-community'
+    }, R6.attribution || {});
+
+    const treeEl = document.getElementById('tree');
+    const contentEl = document.getElementById('content');
+    const titleEl = document.getElementById('docTitle');
+    const editBtn = document.getElementById('editBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const copyBtnText = document.getElementById('copyBtnText');
+    const copyMenu = document.getElementById('copyMenu');
+    const siteFooter = document.getElementById('siteFooter');
+
+    let rawMarkdown = '';
+
+    // 页脚署名：渲染期望文案，并与实际 DOM 逐字符比对；不符则提示并自动恢复
+    (function enforceAttribution() {
+      const expected = FOOTER.showProNote ? ATTRIBUTION.canonical : ATTRIBUTION.base;
+      // showProNote 为 false 即表示已获得专业版/订制版授权，可去除提示
+      if (!FOOTER.showProNote) {
+        const note = document.getElementById('footerProNote');
+        if (note) note.remove();
+      }
+      const link = document.getElementById('footerLink');
+      if (link) {
+        link.href = ATTRIBUTION.templateUrl;
+        link.textContent = ATTRIBUTION.name;
+      }
+      if (siteFooter.textContent !== expected) {
+        // 自动恢复标准署名
+        siteFooter.innerHTML = '';
+        const pre = document.createTextNode('本站由');
+        const a = document.createElement('a');
+        a.id = 'footerLink';
+        a.href = ATTRIBUTION.templateUrl;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = ATTRIBUTION.name;
+        siteFooter.appendChild(pre);
+        siteFooter.appendChild(a);
+        siteFooter.appendChild(document.createTextNode('提供支持'));
+        if (FOOTER.showProNote) {
+          const span = document.createElement('span');
+          span.id = 'footerProNote';
+          span.textContent = ATTRIBUTION.proNote;
+          siteFooter.appendChild(span);
+        }
+        const warn = document.createElement('div');
+        warn.className = 'attribution-warning';
+        warn.textContent = '本页署名被删改，已按《r6t5-docs 社区版授权条款》恢复。商业使用请保留完整署名。';
+        siteFooter.parentNode.insertBefore(warn, siteFooter);
+        console.warn('[r6t5-docs] 署名被删改，已自动恢复');
+      }
+    })();
+
+    marked.setOptions({ gfm: true, breaks: true });
+
+    function currentPath() {
+      const p = new URLSearchParams(location.search).get('path');
+      return p || DEFAULT_PATH;
+    }
+
+    function esc(s) {
+      return s.replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    // 递归渲染目录树：有 children 的节点渲染为可折叠分组，否则渲染为文档链接
+    function renderNode(node) {
+      if (node.children) {
+        const details = document.createElement('details');
+        details.className = 'group';
+        details.open = true;
+        const summary = document.createElement('summary');
+        summary.textContent = node.title;
+        details.appendChild(summary);
+        const ul = document.createElement('ul');
+        node.children.forEach(child => ul.appendChild(renderNode(child)));
+        details.appendChild(ul);
+        return details;
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.className = 'node-link';
+      a.href = '?path=' + encodeURIComponent(node.path);
+      a.textContent = node.title;
+      a.dataset.path = node.path;
+      li.appendChild(a);
+      return li;
+    }
+
+    async function loadManifest() {
+      const res = await fetch('manifest.json');
+      if (!res.ok) throw new Error('manifest.json 加载失败');
+      const manifest = await res.json();
+      treeEl.innerHTML = '';
+      manifest.tree.forEach(n => treeEl.appendChild(renderNode(n)));
+    }
+
+    async function loadDoc() {
+      const path = currentPath();
+      let res;
+      try {
+        res = await fetch(path);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+      } catch (e) {
+        contentEl.innerHTML = '<p>文档加载失败：<code>' + esc(path) + '</code></p>';
+        titleEl.textContent = '文档不存在';
+        return;
+      }
+      const md = await res.text();
+      rawMarkdown = md;
+      contentEl.innerHTML = marked.parse(md);
+
+      const h1 = contentEl.querySelector('h1');
+      const title = h1 ? h1.textContent.trim() : path;
+      titleEl.textContent = title;
+      document.title = title + ' · ' + (R6.title || 'r6t5 文档');
+
+      editBtn.href = 'https://github.com/' + REPO + '/edit/main/' + path;
+
+      document.querySelectorAll('.node-link').forEach(a => {
+        a.classList.toggle('active', a.dataset.path === path);
+      });
+    }
+
+    (async () => {
+      try {
+        await loadManifest();
+      } catch (e) {
+        contentEl.innerHTML = '<p>目录加载失败：' + esc(e.message) + '</p>';
+      }
+      await loadDoc();
+    })();
+
+    // ---------- 复制全文下拉 ----------
+    async function writeClipboard(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+    }
+
+    function flashCopied(label) {
+      copyBtnText.textContent = label;
+      copyBtn.disabled = true;
+      setTimeout(() => {
+        copyBtnText.textContent = '复制全文';
+        copyBtn.disabled = false;
+      }, 1500);
+    }
+
+    copyBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      const open = copyMenu.hidden;
+      copyMenu.hidden = !open;
+      copyBtn.setAttribute('aria-expanded', String(open));
+    });
+
+    copyMenu.addEventListener('click', async e => {
+      e.stopPropagation();
+      const item = e.target.closest('[data-type]');
+      if (!item) return;
+      const type = item.dataset.type;
+      let text = '';
+      let label = '已复制';
+      if (type === 'markdown') {
+        text = rawMarkdown;
+        label = 'Markdown 已复制';
+      } else if (type === 'xml') {
+        text = contentEl.innerHTML;
+        label = 'XML 已复制';
+      } else {
+        text = contentEl.innerText.replace(/\n{3,}/g, '\n\n');
+        label = '纯文本已复制';
+      }
+      try {
+        await writeClipboard(text);
+        flashCopied(label);
+      } catch (err) {
+        alert('复制失败，请手动选择内容复制');
+      }
+      copyMenu.hidden = true;
+      copyBtn.setAttribute('aria-expanded', 'false');
+    });
+
+    document.addEventListener('click', () => {
+      copyMenu.hidden = true;
+      copyBtn.setAttribute('aria-expanded', 'false');
+    });
+
+    // 移动端抽屉菜单
+    document.getElementById('menuBtn').addEventListener('click', () => {
+      document.getElementById('sidebar').classList.toggle('open');
+    });
+    treeEl.addEventListener('click', e => {
+      if (e.target.closest('.node-link')) {
+        document.getElementById('sidebar').classList.remove('open');
+      }
+    });
+  </script>
+  <script src="license-gate.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "r6t5-docs-docker",
+  "version": "1.1.0",
+  "private": true,
+  "description": "r6t5-docs 自托管版（社区版/专业版同镜像 + 管理后台）",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "engines": { "node": ">=18" }
+}

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理后台 · r6t5-docs</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+  body { background:#10131f; color:#e8e8f0; min-height:100vh; padding:24px 16px; }
+  .wrap { max-width:860px; margin:0 auto; }
+  .top { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+  .top h1 { font-size:20px; color:#ffd23f; letter-spacing:1px; }
+  .badge { font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.18); color:#c8c8e8; }
+  .badge.pro { color:#39d98a; border-color:rgba(57,217,138,.5); background:rgba(57,217,138,.1); }
+  .badge.comm { color:#ffb84d; border-color:rgba(255,184,77,.45); background:rgba(255,184,77,.1); }
+  .card { background:#181c2c; border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:18px; margin-bottom:14px; }
+  .card h2 { font-size:15px; color:#ffd23f; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
+  .note { font-size:12px; color:#8f8fb0; line-height:1.8; }
+  label { display:block; font-size:12px; color:#a8a8cc; margin:10px 0 4px; }
+  input[type=text], input[type=password], textarea {
+    width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,.16);
+    background:#0e1120; color:#e8e8f0; font-size:13px;
+  }
+  textarea { font-family:Consolas,monospace; line-height:1.6; min-height:320px; resize:vertical; }
+  input:disabled, textarea:disabled { opacity:.55; }
+  .btn { padding:9px 14px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:600; }
+  .btn.primary { background:linear-gradient(135deg,#ffd23f,#ff9a1f); color:#141414; }
+  .btn.ghost { background:rgba(255,255,255,.08); color:#c8c8e8; border:1px solid rgba(255,255,255,.14); }
+  .btn.mini { padding:4px 8px; font-size:12px; background:rgba(255,255,255,.08); color:#c8c8e8; border:1px solid rgba(255,255,255,.14); }
+  .btn.danger { background:rgba(255,90,90,.14); color:#ff8080; border:1px solid rgba(255,90,90,.35); }
+  .row { display:flex; gap:8px; align-items:center; }
+  .row > * { flex:0 0 auto; }
+  .grow { flex:1 1 auto; min-width:0; }
+  .group { border:1px solid rgba(255,255,255,.1); border-radius:10px; padding:10px; margin-bottom:10px; background:rgba(255,255,255,.03); }
+  .item { display:flex; gap:6px; align-items:center; padding:6px 0; border-top:1px dashed rgba(255,255,255,.08); }
+  .item:first-of-type { border-top:none; }
+  .path { font-size:11px; color:#7d7da8; font-family:Consolas,monospace; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .btn.mini { white-space:nowrap; }
+  .msg { font-size:12px; min-height:16px; margin-top:8px; }
+  .msg.ok { color:#39d98a; } .msg.err { color:#ff8080; }
+  .hide { display:none !important; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .fieldset { border-top:1px solid rgba(255,255,255,.1); margin-top:14px; padding-top:6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>🛠 r6t5-docs 管理后台</h1>
+    <div class="row">
+      <span class="badge" id="modeBadge">未登录</span>
+      <button class="btn ghost hide" id="logoutBtn">退出</button>
+    </div>
+  </div>
+
+  <div class="card" id="loginCard">
+    <h2>管理员登录</h2>
+    <div class="note">初始密码在容器首次启动时打印到日志，并保存在 <code>/data/ADMIN_PASSWORD.txt</code>。</div>
+    <label>管理员密码</label>
+    <input type="password" id="pw" autocomplete="current-password" placeholder="首次启动时显示的管理员密码">
+    <div class="row" style="margin-top:12px;">
+      <button class="btn primary" id="loginBtn">登录</button>
+    </div>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <div id="panel" class="hide">
+    <!-- 授权 -->
+    <div class="card">
+      <h2>授权状态</h2>
+      <div class="note" id="licInfo"></div>
+      <div class="fieldset">
+        <label>产品密钥（15 位，输入后立即切换为专业版）</label>
+        <div class="row">
+          <input type="text" id="keyInput" class="grow" placeholder="XXXXX-XXXXX-XXXXX" autocomplete="off" spellcheck="false" style="text-transform:uppercase;">
+          <button class="btn primary" id="keyBtn">激活</button>
+        </div>
+        <div class="msg" id="keyMsg"></div>
+      </div>
+    </div>
+
+    <!-- 站点设置 -->
+    <div class="card">
+      <h2>站点设置</h2>
+      <div class="grid2">
+        <div><label>站点标题</label><input type="text" id="siteTitle"></div>
+        <div><label>GitHub 仓库（owner/repo）</label><input type="text" id="siteRepo"></div>
+      </div>
+      <label>默认文档路径</label>
+      <input type="text" id="siteDefault">
+      <div class="fieldset">
+        <div class="note" id="attrHint"></div>
+        <label>署名主体文字（页脚）</label>
+        <input type="text" id="attrBase">
+        <div class="grid2">
+          <div><label>链接文字</label><input type="text" id="attrName"></div>
+          <div><label>链接地址</label><input type="text" id="attrUrl"></div>
+        </div>
+        <label>推广提示（社区版显示）</label>
+        <input type="text" id="attrProNote">
+        <label>社区版完整文案（逐字符校验）</label>
+        <input type="text" id="attrCanonical">
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn primary" id="siteBtn">保存设置</button>
+      </div>
+      <div class="msg" id="siteMsg"></div>
+    </div>
+
+    <!-- 文档树 -->
+    <div class="card">
+      <h2>文档树
+        <span class="row">
+          <button class="btn mini" id="addGroupBtn">+ 分组</button>
+          <button class="btn mini" id="treeSaveBtn">保存结构</button>
+        </span>
+      </h2>
+      <div class="note">左侧导航按这里的分组/顺序生成；改标题、调顺序、删条目后点「保存结构」生效。</div>
+      <div id="treeBox" style="margin-top:10px;"></div>
+      <div class="msg" id="treeMsg"></div>
+    </div>
+
+    <!-- 文件编辑 -->
+    <div class="card">
+      <h2>编辑文档
+        <span class="row">
+          <button class="btn mini" id="newFileBtn">+ 新建文档</button>
+          <button class="btn mini danger" id="delFileBtn">删除当前</button>
+        </span>
+      </h2>
+      <label>选择文件</label>
+      <select id="fileSel" style="width:100%;padding:10px;border-radius:8px;background:#0e1120;color:#e8e8f0;border:1px solid rgba(255,255,255,.16);"></select>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn ghost" id="openPreview">打开预览</button>
+        <span class="note" id="previewUrl"></span>
+      </div>
+      <label>内容（Markdown，含全部文字与超链接）</label>
+      <textarea id="fileBody" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn primary" id="saveFileBtn">保存文档</button>
+      </div>
+      <div class="msg" id="fileMsg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let S = { pro:false, tree:[], files:[], current:'' };
+
+const $ = (id) => document.getElementById(id);
+const setMsg = (id, t, ok) => { const e = $(id); e.textContent = t || ''; e.className = 'msg ' + (ok ? 'ok' : 'err'); };
+
+async function api(path, opts) {
+  const r = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json', 'X-R6T5-Admin': '1' } }, opts || {}));
+  let d = {};
+  try { d = await r.json(); } catch (e) {}
+  if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+
+function badge(pro) {
+  const b = $('modeBadge');
+  b.textContent = pro ? '专业版 · 已激活' : '社区版 · 署名锁定';
+  b.className = 'badge ' + (pro ? 'pro' : 'comm');
+}
+
+async function loadState() {
+  const d = await api('/api/admin/state');
+  S.pro = d.pro; S.tree = d.tree || [];
+  badge(d.pro);
+  $('licInfo').innerHTML = d.pro
+    ? '已激活 · 绑定域名 <b>' + esc(d.license.host || d.host) + '</b> · 激活时间 ' + new Date(d.license.activatedAt || Date.now()).toLocaleString()
+    : '当前为社区版：署名逐字符锁定（' + esc(d.canonical.canonical) + '），页脚显示推广提示。输入密钥后即可修改署名与隐藏提示。';
+  const site = d.site || {};
+  $('siteTitle').value = site.title || 'r6t5 文档';
+  $('siteRepo').value = site.repo || '';
+  $('siteDefault').value = site.defaultPath || 'docs/index.md';
+  $('attrBase').value = d.attribution.base;
+  $('attrName').value = d.attribution.name;
+  $('attrUrl').value = d.attribution.templateUrl;
+  $('attrProNote').value = d.attribution.proNote;
+  $('attrCanonical').value = d.attribution.canonical;
+  ['attrBase','attrName','attrUrl','attrProNote','attrCanonical'].forEach((k) => { $(k).disabled = !d.pro; });
+  $('attrHint').textContent = d.pro
+    ? '专业版：署名可自由修改（含指向自己的链接）。保存后所有页面立即生效。'
+    : '社区版：署名锁定，以下字段只读。输入产品密钥后可编辑署名（白标授权）。';
+  await loadFiles();
+  renderTree();
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+async function loadFiles() {
+  const d = await api('/api/admin/files');
+  S.files = d.files || [];
+  const sel = $('fileSel');
+  const cur = sel.value || S.current;
+  sel.innerHTML = S.files.map((f) => '<option value="' + esc(f.path) + '">' + esc(f.path) + '</option>').join('');
+  if (cur && S.files.some((f) => f.path === cur)) sel.value = cur;
+  if (sel.value) await openFile(sel.value);
+}
+
+function renderTree() {
+  const box = $('treeBox');
+  if (!S.tree.length) { box.innerHTML = '<div class="note">还没有分组，点「+ 分组」开始。</div>'; return; }
+  box.innerHTML = S.tree.map((g, gi) => {
+    const kids = (g.children || []).map((c, ci) => {
+      return '<div class="item">'
+        + '<input type="text" class="grow" value="' + esc(c.title) + '" data-g="' + gi + '" data-c="' + ci + '" data-role="title">'
+        + '<span class="path">' + esc(c.path) + '</span>'
+        + '<button class="btn mini" data-act="up" data-g="' + gi + '" data-c="' + ci + '">↑</button>'
+        + '<button class="btn mini" data-act="down" data-g="' + gi + '" data-c="' + ci + '">↓</button>'
+        + '<button class="btn mini" data-act="prev" data-g="' + gi + '" data-c="' + ci + '">预览</button>'
+        + '<button class="btn mini" data-act="edit" data-g="' + gi + '" data-c="' + ci + '">编辑</button>'
+        + '<button class="btn mini danger" data-act="del" data-g="' + gi + '" data-c="' + ci + '">✕</button>'
+        + '</div>';
+    }).join('') || '<div class="note">（空分组）</div>';
+    return '<div class="group">'
+      + '<div class="row">'
+      + '<input type="text" class="grow" value="' + esc(g.title) + '" data-g="' + gi + '" data-role="gtitle">'
+      + '<button class="btn mini" data-act="gup" data-g="' + gi + '">↑</button>'
+      + '<button class="btn mini" data-act="gdown" data-g="' + gi + '">↓</button>'
+      + '<button class="btn mini" data-act="adddoc" data-g="' + gi + '">+ 文档</button>'
+      + '<button class="btn mini danger" data-act="gdel" data-g="' + gi + '">✕</button>'
+      + '</div>' + kids + '</div>';
+  }).join('');
+}
+
+function collectTree() {
+  const box = $('treeBox');
+  box.querySelectorAll('[data-role="gtitle"]').forEach((inp) => { S.tree[+inp.dataset.g].title = inp.value; });
+  box.querySelectorAll('[data-role="title"]').forEach((inp) => { S.tree[+inp.dataset.g].children[+inp.dataset.c].title = inp.value; });
+  return S.tree;
+}
+
+$('treeBox').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const gi = +b.dataset.g, ci = b.dataset.c, act = b.dataset.act;
+  collectTree();
+  const g = S.tree[gi];
+  if (act === 'gup' && gi > 0) [S.tree[gi - 1], S.tree[gi]] = [S.tree[gi], S.tree[gi - 1]];
+  if (act === 'gdown' && gi < S.tree.length - 1) [S.tree[gi + 1], S.tree[gi]] = [S.tree[gi], S.tree[gi + 1]];
+  if (act === 'gdel' && confirm('删除分组「' + g.title + '」？（不会删除文件）')) S.tree.splice(gi, 1);
+  if (act === 'up' && ci > 0) [g.children[ci - 1], g.children[ci]] = [g.children[ci], g.children[ci - 1]];
+  if (act === 'down' && ci < g.children.length - 1) [g.children[ci + 1], g.children[ci]] = [g.children[ci], g.children[ci + 1]];
+  if (act === 'del') g.children.splice(ci, 1);
+  if (act === 'prev') { window.open('/?path=' + encodeURIComponent(g.children[ci].path), '_blank'); return; }
+  if (act === 'edit') { await openFile(g.children[ci].path); return; }
+  if (act === 'adddoc') { await addDocToGroup(gi); return; }
+  renderTree();
+});
+
+$('addGroupBtn').onclick = () => { collectTree(); S.tree.push({ title: '新分组', children: [] }); renderTree(); };
+
+async function addDocToGroup(gi) {
+  const candidates = S.files.map((f) => f.path).filter((p) => !S.tree.some((g) => (g.children || []).some((c) => c.path === p)));
+  let p = prompt('输入要加入的文档路径（docs/ 开头，.md 结尾）\n未列出的可先新建\n\n现有未归类：\n' + (candidates.join('\n') || '（无）'));
+  if (!p) return;
+  p = p.trim().replace(/^\/+/, '');
+  if (!p.startsWith('docs/')) p = 'docs/' + p;
+  if (!p.endsWith('.md')) p += '.md';
+  if (!S.files.some((f) => f.path === p)) {
+    try { await api('/api/admin/file/create', { method: 'POST', body: JSON.stringify({ path: p }) }); await loadFiles(); }
+    catch (e) { setMsg('treeMsg', e.message, false); return; }
+  }
+  S.tree[gi].children.push({ title: p.split('/').pop().replace(/\.md$/, ''), path: p });
+  renderTree();
+}
+
+$('treeSaveBtn').onclick = async () => {
+  try {
+    await api('/api/admin/tree', { method: 'POST', body: JSON.stringify({ tree: collectTree() }) });
+    setMsg('treeMsg', '目录结构已保存', true);
+    await loadState();
+  } catch (e) { setMsg('treeMsg', e.message, false); }
+};
+
+$('fileSel').onchange = (e) => openFile(e.target.value);
+
+async function openFile(p) {
+  try {
+    const d = await api('/api/admin/file?path=' + encodeURIComponent(p));
+    S.current = p;
+    $('fileSel').value = p;
+    $('fileBody').value = d.content;
+    $('previewUrl').textContent = '/?path=' + p;
+    setMsg('fileMsg', '');
+  } catch (e) { setMsg('fileMsg', e.message, false); }
+}
+
+$('saveFileBtn').onclick = async () => {
+  if (!S.current) return;
+  try {
+    await api('/api/admin/file', { method: 'POST', body: JSON.stringify({ path: S.current, content: $('fileBody').value }) });
+    setMsg('fileMsg', '已保存（刷新站点即可看到）', true);
+  } catch (e) { setMsg('fileMsg', e.message, false); }
+};
+
+$('openPreview').onclick = () => { if (S.current) window.open('/?path=' + encodeURIComponent(S.current), '_blank'); };
+
+$('newFileBtn').onclick = async () => {
+  const p = prompt('新文档路径（如 docs/guide/new-page.md）');
+  if (!p) return;
+  let path = p.trim().replace(/^\/+/, '');
+  if (!path.startsWith('docs/')) path = 'docs/' + path;
+  if (!path.endsWith('.md')) path += '.md';
+  try {
+    await api('/api/admin/file/create', { method: 'POST', body: JSON.stringify({ path: path }) });
+    await loadFiles();
+    await openFile(path);
+    await loadState();
+    setMsg('fileMsg', '已创建 ' + path, true);
+  } catch (e) { setMsg('fileMsg', e.message, false); }
+};
+
+$('delFileBtn').onclick = async () => {
+  if (!S.current) return;
+  if (!confirm('删除文件 ' + S.current + ' ？不可恢复')) return;
+  try {
+    await api('/api/admin/file/delete', { method: 'POST', body: JSON.stringify({ path: S.current }) });
+    S.current = '';
+    $('fileBody').value = '';
+    await loadState();
+    setMsg('fileMsg', '已删除', true);
+  } catch (e) { setMsg('fileMsg', e.message, false); }
+};
+
+$('siteBtn').onclick = async () => {
+  try {
+    await api('/api/admin/site', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: $('siteTitle').value,
+        repo: $('siteRepo').value,
+        defaultPath: $('siteDefault').value,
+        attribution: {
+          base: $('attrBase').value, name: $('attrName').value, templateUrl: $('attrUrl').value,
+          proNote: $('attrProNote').value, canonical: $('attrCanonical').value
+        }
+      })
+    });
+    setMsg('siteMsg', '设置已保存', true);
+    await loadState();
+  } catch (e) { setMsg('siteMsg', e.message, false); }
+};
+
+$('keyBtn').onclick = async () => {
+  const key = $('keyInput').value.trim();
+  if (!key) { setMsg('keyMsg', '请输入密钥', false); return; }
+  $('keyBtn').disabled = true; $('keyBtn').textContent = '激活中…';
+  try {
+    const d = await api('/api/admin/key', { method: 'POST', body: JSON.stringify({ key: key }) });
+    $('keyInput').value = '';
+    setMsg('keyMsg', '激活成功：' + d.product + ' · 域名 ' + d.host, true);
+    await loadState();
+  } catch (e) { setMsg('keyMsg', e.message, false); }
+  $('keyBtn').disabled = false; $('keyBtn').textContent = '激活';
+};
+
+$('loginBtn').onclick = async () => {
+  try {
+    await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password: $('pw').value }) });
+    $('loginCard').classList.add('hide');
+    $('panel').classList.remove('hide');
+    $('logoutBtn').classList.remove('hide');
+    await loadState();
+  } catch (e) { setMsg('loginMsg', e.message, false); }
+};
+$('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('loginBtn').click(); });
+
+$('logoutBtn').onclick = async () => {
+  await api('/api/admin/logout', { method: 'POST' });
+  location.reload();
+};
+
+// 自动续登（已有 cookie）
+(async () => {
+  try {
+    await api('/api/admin/state');
+    $('loginCard').classList.add('hide');
+    $('panel').classList.remove('hide');
+    $('logoutBtn').classList.remove('hide');
+    await loadState();
+  } catch (e) { /* 未登录 */ }
+})();
+</script>
+</body>
+</html>
