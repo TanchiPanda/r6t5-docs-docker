@@ -1140,6 +1140,52 @@
         input.focus();
       }
 
+      // ---------- 移动端：选中文字后的横条操作栏 ----------
+      (function initMobileBar() {
+        const coarse = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+          || ('ontouchstart' in window) || /[?&]mobile=1/.test(location.search);
+        if (!coarse) return;
+        const style = document.createElement('style');
+        style.textContent = '.ctx-bar{position:fixed;left:50%;transform:translateX(-50%);width:calc(100% - 16px);max-width:520px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:9998;display:flex;gap:6px;align-items:center;padding:8px 10px;background:#1b2132;border:1px solid #2a3350;border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,.4);overflow-x:auto}'
+          + '.ctx-bar button{flex:0 0 auto;background:none;border:none;color:#e9ecf8;font-size:13.5px;padding:8px 11px;border-radius:9px;white-space:nowrap}'
+          + '.ctx-bar button:active{background:#2a3350}'
+          + '.ctx-bar .bar-x{margin-left:auto;color:#8d99bb;font-size:17px;padding:2px 9px}';
+        document.head.appendChild(style);
+        let bar = null, timer = null, lastSel = '';
+        function hideBar() { if (bar) { bar.remove(); bar = null; } }
+        function curSel() { return String(window.getSelection ? window.getSelection() : '').trim(); }
+        function showBar() {
+          const s = curSel();
+          if (!s || s.length < 2) { hideBar(); return; }
+          if (bar && s === lastSel) return;
+          lastSel = s; hideBar();
+          bar = document.createElement('div');
+          bar.className = 'ctx-bar';
+          const mk = (label, fn) => {
+            const b = document.createElement('button');
+            b.textContent = label;
+            b.onclick = () => { hideBar(); fn(); };
+            bar.appendChild(b);
+          };
+          mk('AI 对话', () => openAI(s));
+          mk('复制', () => copy(s));
+          mk('纠错', () => reportIssue(s));
+          mk('属性', () => showProps());
+          const x = document.createElement('button');
+          x.className = 'bar-x'; x.textContent = '×'; x.onclick = hideBar;
+          bar.appendChild(x);
+          document.body.appendChild(bar);
+        }
+        function later() { clearTimeout(timer); timer = setTimeout(showBar, 260); }
+        document.addEventListener('selectionchange', later);
+        document.addEventListener('touchend', later, { passive: true });
+        document.addEventListener('touchstart', e => {
+          if (bar && e.target && e.target.closest && e.target.closest('.ctx-bar')) return;
+          later();
+        }, { passive: true });
+        window.addEventListener('scroll', hideBar, { passive: true });
+      })();
+
       document.addEventListener('contextmenu', e => {
         if (nativeNext) { nativeNext = false; return; }
         if (e.target.closest('input, textarea, [contenteditable="true"]')) return;
