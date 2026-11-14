@@ -1101,6 +1101,7 @@
       }
 
       function openAI(sel) {
+        if (window.R6AI && window.R6AI.openWith) { window.R6AI.openWith(sel); return; }
         if (!aiCfg().endpoint) { toast('管理员还没配置 AI 接口'); return; }
         const path = curPath();
         const raw = curText();
@@ -1311,5 +1312,237 @@
       gear.addEventListener('click', open);
     })();
 </script>
+<style id="r6ai-style">
+.r6ai{position:fixed;top:57px;right:0;bottom:0;width:364px;background:var(--bg,#fff);border-left:1px solid var(--border,#e5e7eb);display:flex;flex-direction:column;z-index:9990;font-size:13.5px}
+.r6ai.hide{display:none}
+.r6ai-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border,#e5e7eb)}
+.r6ai-title{font-weight:600;font-size:14px}
+.r6ai-sub{font-weight:400;color:#8b95a5;font-size:11.5px;margin-left:6px}
+.r6ai-new{border:1px solid var(--border,#e5e7eb);background:none;color:var(--text,#111);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer}
+.r6ai-new:hover{border-color:#4c8bf5;color:#4c8bf5}
+.r6ai-body{flex:1;overflow-y:auto;padding:14px}
+.r6ai-hello{color:var(--text,#111);font-size:15px;font-weight:600;margin:6px 0 4px}
+.r6ai-hint{color:#8b95a5;font-size:12.5px;margin-bottom:16px}
+.r6ai-hishead{font-size:11.5px;color:#8b95a5;letter-spacing:.4px;margin:10px 0 8px}
+.r6ai-his{display:flex;flex-direction:column;gap:6px}
+.r6ai-hitem{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border,#e5e7eb);border-radius:9px;cursor:pointer;background:none;color:var(--text,#111);text-align:left}
+.r6ai-hitem:hover{border-color:#4c8bf5}
+.r6ai-htitle{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
+.r6ai-hdel{color:#98a2b3;font-size:14px;padding:0 2px}
+.r6ai-msg{display:flex;gap:8px;margin-bottom:12px}
+.r6ai-msg.user{justify-content:flex-end}
+.r6ai-bubble{max-width:86%;padding:9px 12px;border-radius:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.r6ai-msg.user .r6ai-bubble{background:#4c8bf5;color:#fff;border-bottom-right-radius:4px}
+.r6ai-msg.ai .r6ai-bubble{background:var(--code-bg,#f4f5f7);color:var(--text,#111);border-bottom-left-radius:4px}
+.r6ai-quote{display:block;border-left:3px solid #4c8bf5;padding:4px 8px;margin-bottom:6px;color:#6b7280;font-size:12px;max-height:72px;overflow:hidden}
+.r6ai-compose{border-top:1px solid var(--border,#e5e7eb);padding:10px 12px 12px}
+.r6ai-tools{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.r6ai-chip{border:1px solid var(--border,#e5e7eb);background:none;color:var(--text,#111);border-radius:999px;padding:4px 11px;font-size:12px;cursor:pointer}
+.r6ai-chip.on{background:#eaf1ff;border-color:#4c8bf5;color:#2f6fe0}
+html.r6t5-dark .r6ai-chip.on{background:rgba(76,139,245,.18)}
+.r6ai-quotebox{display:none;border:1px solid var(--border,#e5e7eb);border-radius:9px;padding:6px 9px;margin-bottom:8px;font-size:12px;color:#6b7280;max-height:66px;overflow:hidden}
+.r6ai-quotebox.show{display:block}
+.r6ai-inputwrap{display:flex;gap:8px;align-items:flex-end}
+.r6ai-inputwrap textarea{flex:1;resize:none;max-height:120px;padding:9px 11px;border:1px solid var(--border,#e5e7eb);border-radius:9px;background:var(--bg,#fff);color:var(--text,#111);font-family:inherit;font-size:13.5px;line-height:1.6}
+.r6ai-inputwrap textarea:focus{outline:none;border-color:#4c8bf5}
+.r6ai-send{padding:9px 14px;border:none;border-radius:9px;background:#4c8bf5;color:#fff;font-size:13px;cursor:pointer}
+.r6ai-send:disabled{opacity:.55}
+.r6ai-fab{position:fixed;right:16px;bottom:calc(20px + env(safe-area-inset-bottom));width:52px;height:52px;border-radius:50%;border:none;background:#4c8bf5;color:#fff;font-size:15px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:9991;display:none}
+@media (max-width:900px){
+  .r6ai{top:0;width:100%;max-width:520px;left:auto;box-shadow:-12px 0 30px rgba(0,0,0,.25);transform:translateX(100%);transition:transform .22s ease}
+  .r6ai.open{transform:none}
+  .r6ai.hide{display:flex;transform:translateX(100%)}
+  .r6ai-fab{display:block}
+}
+@media (min-width:1280px){ body.r6ai-spacer{padding-right:364px} }
+</style>
+<button class="r6ai-fab" id="r6aiFab" aria-label="AI 助手">AI</button>
+<aside class="r6ai hide" id="r6ai">
+  <div class="r6ai-head">
+    <div class="r6ai-title">AI 助手<span class="r6ai-sub">Workers AI</span></div>
+    <button class="r6ai-new" id="r6aiNew">新对话</button>
+  </div>
+  <div class="r6ai-body" id="r6aiBody"></div>
+  <div class="r6ai-compose">
+    <div class="r6ai-tools">
+      <button class="r6ai-chip" id="r6aiDeep">深度思考</button>
+      <button class="r6ai-chip" id="r6aiQuoteBtn" hidden>引用选中</button>
+    </div>
+    <div class="r6ai-quotebox" id="r6aiQuoteBox"></div>
+    <div class="r6ai-inputwrap">
+      <textarea id="r6aiInput" rows="1" placeholder="有什么我可以帮你吗？"></textarea>
+      <button class="r6ai-send" id="r6aiSend">发送</button>
+    </div>
+  </div>
+</aside>
+<script>
+(function () {
+  var STORE = 'r6t5.aiSidebar.v1';
+  var box = document.getElementById('r6ai');
+  var body = document.getElementById('r6aiBody');
+  var input = document.getElementById('r6aiInput');
+  var sendBtn = document.getElementById('r6aiSend');
+  var fab = document.getElementById('r6aiFab');
+  var deepBtn = document.getElementById('r6aiDeep');
+  var quoteBtn = document.getElementById('r6aiQuoteBtn');
+  var quoteBox = document.getElementById('r6aiQuoteBox');
+  var isMobile = function () { return window.matchMedia('(max-width:900px)').matches; };
+  var state = { convos: [], current: null, deep: false, quote: '' };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+  function save() { try { localStorage.setItem(STORE, JSON.stringify({ convos: state.convos.slice(0, 30) })); } catch (e) {} }
+  function load() { try { var d = JSON.parse(localStorage.getItem(STORE) || '{}'); state.convos = Array.isArray(d.convos) ? d.convos : []; } catch (e) {} }
+  function endpoint() {
+    try { if (window.MANIFEST && MANIFEST.ai && MANIFEST.ai.endpoint) return MANIFEST.ai.endpoint; } catch (e) {}
+    return (window.R6 && R6.aiEndpoint) || '';
+  }
+  function docPath() { return window.__r6t5Path || (new URLSearchParams(location.search).get('path') || ''); }
+  function docText() { return window.__r6t5DocRaw || ''; }
+
+  function openPanel() {
+    box.classList.remove('hide'); box.classList.add('open');
+    if (!isMobile() && window.innerWidth >= 1280) document.body.classList.add('r6ai-spacer');
+    if (!isMobile()) body.classList.remove('hide');
+  }
+  function closePanel() { box.classList.remove('open'); if (isMobile()) box.classList.add('hide'); }
+
+  function render() {
+    if (state.current && state.current.messages.length) renderChat();
+    else renderHome();
+  }
+
+  function renderHome() {
+    var html = '<div class="r6ai-hello">有什么我可以帮你吗？</div>'
+      + '<div class="r6ai-hint">可以问我这篇文档讲了什么、某段怎么理解，也能接着上一篇继续聊。</div>';
+    if (state.convos.length) {
+      html += '<div class="r6ai-hishead">历史对话</div><div class="r6ai-his">';
+      state.convos.forEach(function (c) {
+        html += '<button class="r6ai-hitem" data-cid="' + c.id + '"><span class="r6ai-htitle">' + esc(c.title || '未命名对话') + '</span>'
+          + '<span class="r6ai-hdel" data-del="' + c.id + '">×</span></button>';
+      });
+      html += '</div>';
+    }
+    body.innerHTML = html;
+  }
+
+  function renderChat() {
+    var msgs = state.current.messages;
+    body.innerHTML = msgs.map(function (m) {
+      return '<div class="r6ai-msg ' + (m.role === 'user' ? 'user' : 'ai') + '"><div class="r6ai-bubble">'
+        + (m.quote ? '<span class="r6ai-quote">' + esc(m.quote.slice(0, 160)) + '</span>' : '')
+        + esc(m.content) + '</div></div>';
+    }).join('');
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function newChat() {
+    if (state.current && state.current.messages.length) {
+      state.current.id = state.current.id || String(Date.now());
+      state.current.title = state.current.title || state.current.messages[0].content.slice(0, 24);
+      state.convos.unshift(state.current);
+      save();
+    }
+    state.current = { id: String(Date.now()), title: '', messages: [] };
+    renderHome();
+    input.focus();
+  }
+
+  async function ask() {
+    var q = input.value.trim();
+    if (!q) return;
+    if (!endpoint()) { alert('管理员还没配置 AI 接口'); return; }
+    state.current = state.current || { id: String(Date.now()), title: '', messages: [] };
+    var quote = state.quote;
+    state.current.messages.push({ role: 'user', content: q, quote: quote });
+    if (!state.current.title) state.current.title = q.slice(0, 24);
+    input.value = ''; setQuote('');
+    renderChat();
+    sendBtn.disabled = true;
+    var bubble = document.createElement('div');
+    bubble.className = 'r6ai-msg ai';
+    bubble.innerHTML = '<div class="r6ai-bubble">思考中…</div>';
+    body.appendChild(bubble); body.scrollTop = body.scrollHeight;
+    try {
+      var hist = state.current.messages.slice(0, -1).map(function (m) { return { role: m.role, content: m.content }; });
+      var r = await fetch(endpoint(), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q, doc: docPath(), context: quote || docText().slice(0, 1200), history: hist, deep: state.deep, locale: 'zh' })
+      });
+      var d = await r.json().catch(function () { return {}; });
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      var text = d.text || d.response || d.answer || '（无回答）';
+      state.current.messages.push({ role: 'assistant', content: text });
+      bubble.querySelector('.r6ai-bubble').textContent = text;
+      save();
+    } catch (e) {
+      bubble.querySelector('.r6ai-bubble').textContent = 'AI 服务不可用：' + (e.message || '未知错误');
+    } finally {
+      sendBtn.disabled = false; body.scrollTop = body.scrollHeight;
+    }
+  }
+
+  function setQuote(t) {
+    state.quote = t || '';
+    quoteBox.textContent = state.quote;
+    quoteBox.classList.toggle('show', !!state.quote);
+    quoteBtn.hidden = !state.quote;
+  }
+
+  function selectionText() {
+    var s = String(window.getSelection ? window.getSelection() : '').trim();
+    return s.length >= 2 ? s.slice(0, 300) : '';
+  }
+
+  document.addEventListener('selectionchange', function () {
+    var s = selectionText();
+    if (s) quoteBtn.hidden = false;
+    else if (!state.quote) quoteBtn.hidden = true;
+  });
+
+  quoteBtn.onclick = function () { setQuote(selectionText() || state.quote); };
+  quoteBox.onclick = function () { setQuote(''); };
+  deepBtn.onclick = function () { state.deep = !state.deep; deepBtn.classList.toggle('on', state.deep); };
+  sendBtn.onclick = ask;
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+  });
+  input.addEventListener('input', function () {
+    input.style.height = 'auto'; input.style.height = Math.min(120, input.scrollHeight) + 'px';
+  });
+  document.getElementById('r6aiNew').onclick = newChat;
+  body.addEventListener('click', function (e) {
+    var del = e.target.closest('[data-del]');
+    if (del) {
+      e.stopPropagation();
+      state.convos = state.convos.filter(function (c) { return c.id !== del.dataset.del; });
+      save(); renderHome(); return;
+    }
+    var item = e.target.closest('[data-cid]');
+    if (item) {
+      var c = state.convos.find(function (x) { return x.id === item.dataset.cid; });
+      if (c) { state.current = { id: c.id, title: c.title, messages: c.messages.slice() }; renderChat(); }
+    }
+  });
+  fab.onclick = function () { if (box.classList.contains('open')) closePanel(); else { openPanel(); if (!state.current) renderHome(); } };
+
+  window.R6AI = {
+    openWith: function (sel) {
+      openPanel();
+      if (sel) { setQuote(sel); }
+      render();
+      if (sel) input.focus();
+    }
+  };
+
+  load();
+  if (!state.current) state.current = { id: String(Date.now()), title: '', messages: [] };
+  render();
+  if (!isMobile()) openPanel(); else box.classList.add('hide');
+  window.addEventListener('resize', function () {
+    if (!isMobile()) openPanel(); else { box.classList.remove('open'); box.classList.add('hide'); document.body.classList.remove('r6ai-spacer'); }
+  });
+})();
+</script>
+
 </body>
 </html>
