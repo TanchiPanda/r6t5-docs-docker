@@ -990,7 +990,8 @@
     // ---------- 站内右键菜单 ----------
     (function initContextMenu() {
       const R6c = (typeof R6 !== 'undefined' && R6) || {};
-      const AI_CFG = Object.assign({ endpoint: R6c.aiEndpoint || '' }, (typeof MANIFEST !== 'undefined' && MANIFEST && MANIFEST.ai) || {});
+      // manifest 是异步加载的，这里必须惰性求值，否则菜单会一直置灰
+      const aiCfg = () => Object.assign({ endpoint: R6c.aiEndpoint || '' }, (typeof MANIFEST !== 'undefined' && MANIFEST && MANIFEST.ai) || {});
       const REPO_CFG = ((typeof REPO !== 'undefined' && REPO) || (typeof MANIFEST !== 'undefined' && MANIFEST && MANIFEST.repo) || '');
       const repoUsable = REPO_CFG && !/用户名|example/i.test(REPO_CFG);
 
@@ -1028,7 +1029,7 @@
         close();
         menu = document.createElement('div');
         menu.className = 'ctx-menu';
-        menu.appendChild(item('AI 对话', 'Workers AI', () => openAI(sel), !AI_CFG.endpoint));
+        menu.appendChild(item('AI 对话', 'Workers AI', () => openAI(sel), !aiCfg().endpoint));
         menu.appendChild(item('复制', sel ? '选中内容' : '全文', () => copy(sel)));
         menu.appendChild(item('纠错', '提到 GitHub Issue', () => reportIssue(sel)));
         menu.appendChild(item('属性', '大小 / 提交 / 字数', () => showProps()));
@@ -1100,7 +1101,7 @@
       }
 
       function openAI(sel) {
-        if (!AI_CFG.endpoint) { toast('管理员还没配置 AI 接口'); return; }
+        if (!aiCfg().endpoint) { toast('管理员还没配置 AI 接口'); return; }
         const path = curPath();
         const raw = curText();
         const box = modal(
@@ -1122,7 +1123,7 @@
           if (!q) return;
           ans.innerHTML = '<div style="color:#8d99bb">思考中…</div>';
           try {
-            const r = await fetch(AI_CFG.endpoint, {
+            const r = await fetch(aiCfg().endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ question: q, doc: path, context: (sel || raw).slice(0, 1200), locale: 'zh' })
